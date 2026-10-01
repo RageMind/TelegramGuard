@@ -235,6 +235,39 @@ class NftWhitelist:
             "entries": len(entries),
         }
 
+    def snapshot(self) -> dict[str, Any]:
+        health = self.health()
+        entries = self._load_entries() if self.config.firewall_mode == "nft" else {}
+        now = int(time.time())
+        items: list[dict[str, Any]] = []
+
+        for ip_value, meta in sorted(entries.items()):
+            address = ipaddress.ip_address(ip_value)
+            expires_at_raw = meta.get("expires_at")
+            expires_at = int(expires_at_raw) if expires_at_raw is not None else None
+            remaining_seconds = (
+                max(0, expires_at - now) if expires_at is not None else None
+            )
+            source = str(meta.get("source", "telegram"))
+            items.append(
+                {
+                    "ip": str(address),
+                    "version": address.version,
+                    "source": source,
+                    "permanent": expires_at is None,
+                    "protected": source == "bootstrap",
+                    "expires_at": expires_at,
+                    "remaining_seconds": remaining_seconds,
+                }
+            )
+
+        return {
+            "mode": health["mode"],
+            "active": bool(health["active"]),
+            "ssh_port": int(health["ssh_port"]),
+            "entries": items,
+        }
+
     def allow(self, ip_value: str, ttl_seconds: int) -> dict[str, str | int]:
         self._assert_write_mode()
         if not 60 <= ttl_seconds <= 7 * 86400:
@@ -264,6 +297,11 @@ class NftWhitelist:
         self._assert_write_mode()
         address = parse_ip(ip_value)
         entries = self._load_entries()
+        existing = entries.get(str(address))
+        if isinstance(existing, dict) and existing.get("source") == "bootstrap":
+            raise PermissionError(
+                "bootstrap address is protected; remove or rotate it locally"
+            )
         removed = entries.pop(str(address), None) is not None
 
         self._run(
@@ -280,27 +318,24 @@ class NftWhitelist:
         }
 
     def listing(self) -> str:
-        if self.config.firewall_mode != "nft":
+        snapshot = self.snapshot()
+        if snapshot["mode"] != "nft":
             return "unavailable: firewall is in observe mode"
 
-        entries = self._load_entries()
-        health = self.health()
+        entries = snapshot["entries"]
         lines = [
             "mode: managed",
-            f"status: {'active' if health['active'] else 'inactive'}",
-            f"ssh-port: {self.config.ssh_port}",
+            f"status: {'active' if snapshot['active'] else 'inactive'}",
+            f"ssh-port: {snapshot['ssh_port']}",
             f"trusted: {len(entries)}",
         ]
 
-        now = int(time.time())
-        for ip_value, meta in sorted(entries.items()):
-            expires_at = meta.get("expires_at")
-            if expires_at is None:
-                ttl = "permanent"
-            else:
-                remaining = max(0, int(expires_at) - now)
-                ttl = f"{max(1, remaining // 60)}m"
-            source = str(meta.get("source", "telegram"))
-            lines.append(f"{ip_value} · {ttl} · {source}")
+        for item in entries:
+            remaining = item["remaining_seconds"]
+            ttl = "permanent" if remaining is None else f"{max(1, int(remaining) // 60)}m"
+            marker = " · protected" if item["protected"] else ""
+            lines.append(
+                f"{item['ip']} · {ttl} · {item['source']}{marker}"
+            )
 
         return bounded("\n".join(lines), 6500)
