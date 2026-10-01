@@ -335,7 +335,7 @@ class BotApp:
                 attention += 1
 
             last_rows = self.state.recent_audit(1)
-            last_action = "нет действий"
+            last_action = "Действий пока нет"
             if last_rows:
                 last = last_rows[0]
                 action = str(last.get("action", ""))
@@ -344,33 +344,36 @@ class BotApp:
                 outcome_label = _OUTCOME_LABELS.get(outcome, outcome)
                 last_action = f"{label} · {outcome_label}"
 
-            access_line = (
-                "🟢 SSH вход: <b>Telegram approval</b>\n"
-                if approval_active
-                else (
-                    f"{'🟢' if firewall_active else '🟡'} SSH whitelist: "
-                    f"<b>{'активен' if firewall_active else 'не активен'}</b>\n"
-                )
+            if approval_active:
+                access_label = "Telegram 2FA · ON"
+            elif firewall_active:
+                access_label = "IP whitelist · ON"
+            else:
+                access_label = "НЕ ЗАЩИЩЁН"
+
+            health = "🟢 <b>NORMAL</b>" if attention == 0 else (
+                f"🟡 <b>ATTENTION · {attention}</b>"
             )
             body = (
-                "🟢 <b>VPS на связи</b>\n"
-                f"⏱ {_safe(_uptime(int(result.get('uptime_seconds', 0))))}\n"
-                f"RAM <code>{ram}%</code>   ·   Диск <code>{disk}%</code>\n"
-                f"{access_line}"
-                f"🧩 Сервисов под контролем: <b>{len(units)}</b>\n"
-                f"{'🟢' if attention == 0 else '🟡'} Требует внимания: "
-                f"<b>{attention}</b>\n\n"
-                f"<i>Последнее: {_safe(last_action)}</i>"
+                "🟢 <b>VPS ONLINE</b>\n"
+                f"<code>UP {_safe(_uptime(int(result.get('uptime_seconds', 0))))}"
+                f"   RAM {ram}%   DISK {disk}%</code>\n\n"
+                f"<b>Доступ</b>     <code>{_safe(access_label)}</code>\n"
+                f"<b>Сервисы</b>    <code>{len(units)}</code> managed\n"
+                f"<b>SSH / 15м</b>  <code>{ssh_failed}</code> failed\n"
+                f"<b>Состояние</b>  {health}\n\n"
+                f"<i>{_safe(last_action)}</i>"
             )
         except HelperError:
             body = (
-                "🟠 <b>Панель доступна, helper не отвечает</b>\n\n"
-                "Откройте «Система» после восстановления локального helper."
+                "🔴 <b>CONTROL PLANE DEGRADED</b>\n\n"
+                "Privileged helper не отвечает. Telegram-интерфейс доступен, "
+                "но системные действия временно заблокированы."
             )
 
         await self._show(
             chat_id,
-            _screen("Центр управления", body, "Private control plane"),
+            _screen("Control Center", body),
             _home_keyboard(),
             message_id,
         )
@@ -395,27 +398,24 @@ class BotApp:
         if self.config.ssh_approval_enabled:
             status = self.ssh_approval.status()
             body = (
-                "🟢 <b>Telegram approval для SSH активен</b>\n\n"
-                "Сначала SSH проверяет пользователя и пароль/ключ. "
-                "Только после успешной первичной аутентификации "
-                "TelegramGuard отправляет запрос сюда.\n\n"
-                f"Ожидание подтверждения: <b>{self.config.ssh_approval_timeout}с</b>\n"
-                f"Ожидают решения сейчас: <b>{int(status['pending'])}</b>\n\n"
-                "Без нажатия «Разрешить вход» PAM отклонит сессию. "
-                "Пароль в TelegramGuard не передаётся."
+                "🟢 <b>SSH 2FA · ACTIVE</b>\n"
+                "<code>Пароль/ключ → Telegram → Shell</code>\n\n"
+                f"<b>Timeout</b>   <code>{self.config.ssh_approval_timeout}s</code>\n"
+                f"<b>Pending</b>   <code>{int(status['pending'])}</code>\n\n"
+                "После успешной проверки пароля или ключа вход всё равно "
+                "останавливается до вашего подтверждения в Telegram. "
+                "Секреты в бота не передаются."
             )
             await self._show(
                 chat_id,
                 _screen("Доступ к VPS", body),
-                {
-                    "inline_keyboard": [
-                        [
-                            {"text": "↻ Обновить", "callback_data": "ui:access"},
-                            {"text": "🛡 Безопасность", "callback_data": "ui:security"},
-                        ],
-                        [{"text": "⌂ Главная", "callback_data": "ui:home"}],
-                    ]
-                },
+                keyboard(
+                    [
+                        button("Обновить", "ui:access"),
+                        button("Безопасность", "ui:security", style="primary"),
+                    ],
+                    [button("Control Center", "ui:home")],
+                ),
                 message_id,
             )
             self.state.audit(admin_id, "firewall.snapshot", "ok")
@@ -434,11 +434,11 @@ class BotApp:
         rows: list[list[dict[str, str]]] = []
         if active:
             body_lines = [
-                "🟢 <b>SSH whitelist активен</b>",
-                f"Порт: <code>{port}</code>",
-                f"Доверенных адресов: <b>{len(entries)}</b>",
+                "🟢 <b>IP WHITELIST · ACTIVE</b>",
+                f"<b>SSH port</b>   <code>{port}</code>",
+                f"<b>Trusted</b>    <code>{len(entries)}</code>",
                 "",
-                "<b>Доступ</b>",
+                "<b>Разрешённые адреса</b>",
             ]
             if not entries:
                 body_lines.append("Записей пока нет.")
@@ -456,31 +456,31 @@ class BotApp:
                 )
                 rows.append(
                     [
-                        {
-                            "text": f"{icon} {ip_value} · {state}",
-                            "callback_data": f"acl:{ip_value}",
-                        }
+                        button(
+                            f"{icon} {ip_value} · {state}",
+                            f"acl:{ip_value}",
+                        )
                     ]
                 )
             body = "\n".join(body_lines)
             rows.append(
-                [{"text": "＋ Выдать доступ", "callback_data": "ui:allow"}]
+                [button("Выдать доступ", "ui:allow", style="success")]
             )
         else:
             mode = str(snapshot.get("mode", "unknown"))
             body = (
-                "🟡 <b>SSH whitelist не активен</b>\n"
-                f"Режим: <code>{_safe(mode)}</code>\n"
-                f"SSH-порт: <code>{port or '—'}</code>\n\n"
-                "TelegramGuard не ограничивает SSH в этом состоянии. "
-                "Запустите установщик повторно из активной SSH-сессии: "
-                "он закрепит текущий IP и включит managed whitelist."
+                "🟡 <b>SSH PROTECTION · OFF</b>\n\n"
+                f"<b>Mode</b>      <code>{_safe(mode)}</code>\n"
+                f"<b>SSH port</b>  <code>{port or '—'}</code>\n\n"
+                "Сейчас TelegramGuard не ограничивает SSH. "
+                "Включение защиты выполняется локально на VPS, чтобы "
+                "ошибка в Telegram не могла заблокировать аварийный доступ."
             )
 
         rows.append(
             [
-                {"text": "↻ Обновить", "callback_data": "ui:access"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
+                button("Обновить", "ui:access"),
+                button("Control Center", "ui:home", style="primary"),
             ]
         )
         await self._show(
@@ -544,32 +544,27 @@ class BotApp:
         if not permanent:
             rows.append(
                 [
-                    {
-                        "text": "＋1 час",
-                        "callback_data": f"ext1:{address}",
-                    },
-                    {
-                        "text": "＋1 день",
-                        "callback_data": f"extd:{address}",
-                    },
+                    button("＋1 час", f"ext1:{address}"),
+                    button("＋1 день", f"extd:{address}"),
                 ]
             )
             rows.append(
                 [
-                    {
-                        "text": "∞ Сделать постоянным",
-                        "callback_data": f"perm:{address}",
-                    }
+                    button(
+                        "Сделать постоянным",
+                        f"perm:{address}",
+                        style="primary",
+                    )
                 ]
             )
         if not protected:
             rows.append(
-                [{"text": "− Отозвать доступ", "callback_data": f"rvk:{address}"}]
+                [button("Отозвать доступ", f"rvk:{address}", style="danger")]
             )
         rows.append(
             [
-                {"text": "← Доступ", "callback_data": "ui:access"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
+                button("Назад", "ui:access"),
+                button("Control Center", "ui:home"),
             ]
         )
         await self._show(
