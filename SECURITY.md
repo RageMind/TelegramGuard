@@ -27,6 +27,7 @@ TelegramGuard assumes:
 - Telegram's Bot API transport is reachable over HTTPS;
 - the bot token is secret and stored outside Git;
 - admin authorization uses immutable numeric Telegram user IDs;
+- administrative commands and callback actions are accepted only in private chats;
 - the unprivileged bot cannot become root;
 - only the local root helper can perform privileged operations;
 - the helper socket is accessible only to the TelegramGuard service group;
