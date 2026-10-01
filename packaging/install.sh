@@ -17,12 +17,25 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "== QyAi • ${PROJECT} installer =="
 
-for command in python3 nft systemctl; do
-  if ! command -v "${command}" >/dev/null 2>&1; then
-    echo "${command} is required" >&2
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "systemd is required" >&2
+  exit 1
+fi
+
+NEED_PACKAGES=0
+command -v python3 >/dev/null 2>&1 || NEED_PACKAGES=1
+command -v nft >/dev/null 2>&1 || NEED_PACKAGES=1
+
+if [[ "${NEED_PACKAGES}" -eq 1 ]] || ! python3 -m venv --help >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y python3 python3-venv nftables ca-certificates
+  else
+    echo "Missing Python 3/venv or nftables. Install them and rerun." >&2
     exit 1
   fi
-done
+fi
 
 python3 - <<'PY'
 import sys
@@ -87,8 +100,13 @@ fi
 
 if [[ ! -s "${HELPER_ENV}" ]]; then
   cp "${CONFIG_ROOT}/helper.env.example" "${HELPER_ENV}"
-  chown root:root "${HELPER_ENV}"
-  chmod 0600 "${HELPER_ENV}"
+fi
+chown root:root "${HELPER_ENV}"
+chmod 0600 "${HELPER_ENV}"
+
+if [[ -s "${BOT_ENV}" ]]; then
+  chown root:"${SERVICE_USER}" "${BOT_ENV}"
+  chmod 0640 "${BOT_ENV}"
 fi
 
 BOT_READY=0
@@ -96,10 +114,90 @@ if [[ -s "${BOT_ENV}" ]] && grep -q '^TELEGRAM_BOT_TOKEN=.' "${BOT_ENV}" && grep
   BOT_READY=1
 fi
 
-if [[ "${BOT_READY}" -eq 1 && -n "${SSH_CONNECTION:-}" ]]; then
-  python3 "${ROOT_DIR}/scripts/enable-managed-firewall.py" --helper-env "${HELPER_ENV}" --state "${STATE_ROOT}/firewall.json"
+EXISTING_MANAGED=0
+if grep -q '^FIREWALL_MODE=nft
+cat >/usr/local/sbin/telegram-guard-firewall-off <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+ENV_FILE=/etc/telegram-guard/helper.env
+NFT_FAMILY=inet
+NFT_TABLE=telegram_guard
+
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
+
+nft delete table "${NFT_FAMILY}" "${NFT_TABLE}" 2>/dev/null || true
+
+if [[ -f "${ENV_FILE}" ]]; then
+  if grep -q '^FIREWALL_MODE=' "${ENV_FILE}"; then
+    sed -i 's/^FIREWALL_MODE=.*/FIREWALL_MODE=observe/' "${ENV_FILE}"
+  else
+    echo 'FIREWALL_MODE=observe' >>"${ENV_FILE}"
+  fi
+fi
+
+systemctl restart telegram-guard-helper.service 2>/dev/null || true
+echo "TelegramGuard managed SSH whitelist disabled."
+EOF
+chmod 0700 /usr/local/sbin/telegram-guard-firewall-off
+
+systemctl daemon-reload
+
+if [[ "${BOT_READY}" -eq 1 ]]; then
+  systemctl enable telegram-guard-helper.service telegram-guard.service >/dev/null
+  systemctl restart telegram-guard-helper.service
+  systemctl restart telegram-guard.service
+  sleep 2
+
+  systemctl is-active --quiet telegram-guard-helper.service || {
+    echo "Helper failed to start. Rolling firewall back to observe mode." >&2
+    /usr/local/sbin/telegram-guard-firewall-off || true
+    journalctl -u telegram-guard-helper.service -n 40 --no-pager >&2 || true
+    exit 1
+  }
+  systemctl is-active --quiet telegram-guard.service || {
+    echo "Bot failed to start. Bootstrap SSH access remains preserved." >&2
+    journalctl -u telegram-guard.service -n 40 --no-pager >&2 || true
+    exit 1
+  }
+fi
+
+echo
+VERSION="$("${INSTALL_ROOT}/venv/bin/python" -c 'from telegram_guard import __version__; print(__version__)' 2>/dev/null || echo unknown)"
+echo "TelegramGuard ${VERSION} installed."
+if [[ "${BOT_READY}" -eq 1 ]]; then
+  echo "Bot: RUNNING"
 else
-  sed -i 's/^FIREWALL_MODE=.*/FIREWALL_MODE=observe/' "${HELPER_ENV}"
+  echo "Bot: NOT CONFIGURED"
+fi
+
+if grep -q '^FIREWALL_MODE=nft$' "${HELPER_ENV}"; then
+  echo "SSH whitelist: ACTIVE"
+  echo "Current SSH client is pinned as the bootstrap address."
+  echo "Emergency recovery: /usr/local/sbin/telegram-guard-firewall-off"
+else
+  echo "SSH whitelist: OBSERVE MODE"
+fi
+
+echo "QyAi • https://qyai.ru"
+ "${HELPER_ENV}" && [[ -s "${STATE_ROOT}/firewall.json" ]]; then
+  EXISTING_MANAGED=1
+fi
+
+if [[ "${BOT_READY}" -eq 1 && -n "${SSH_CONNECTION:-}" ]]; then
+  python3 "${ROOT_DIR}/scripts/enable-managed-firewall.py"     --helper-env "${HELPER_ENV}"     --state "${STATE_ROOT}/firewall.json"
+elif [[ "${EXISTING_MANAGED}" -eq 1 ]]; then
+  echo "Existing managed SSH whitelist detected; preserving it."
+else
+  if grep -q '^FIREWALL_MODE=' "${HELPER_ENV}"; then
+    sed -i 's/^FIREWALL_MODE=.*/FIREWALL_MODE=observe/' "${HELPER_ENV}"
+  else
+    echo 'FIREWALL_MODE=observe' >>"${HELPER_ENV}"
+  fi
 fi
 
 cat >/usr/local/sbin/telegram-guard-firewall-off <<'EOF'
