@@ -73,6 +73,8 @@ class BotConfig:
     rate_limit_per_minute: int
     alert_interval_seconds: int
     ssh_failed_alert_threshold: int
+    ssh_approval_socket: str
+    ssh_approval_timeout: int
     state_db: str
     helper_socket: str
 
@@ -87,8 +89,18 @@ class BotConfig:
         helper_socket = os.environ.get(
             "HELPER_SOCKET", "/run/telegram-guard/helper.sock"
         ).strip()
-        if not state_db.startswith("/") or not helper_socket.startswith("/"):
-            raise ConfigError("STATE_DB and HELPER_SOCKET must be absolute paths")
+        ssh_approval_socket = os.environ.get(
+            "SSH_APPROVAL_SOCKET",
+            "/run/telegram-guard-bot/approval.sock",
+        ).strip()
+        if (
+            not state_db.startswith("/")
+            or not helper_socket.startswith("/")
+            or not ssh_approval_socket.startswith("/")
+        ):
+            raise ConfigError(
+                "STATE_DB, HELPER_SOCKET and SSH_APPROVAL_SOCKET must be absolute paths"
+            )
         return cls(
             token=token,
             admin_ids=_csv_ints("TELEGRAM_ADMIN_IDS"),
@@ -99,6 +111,10 @@ class BotConfig:
             ),
             ssh_failed_alert_threshold=_int(
                 "SSH_FAILED_ALERT_THRESHOLD", 10, 1, 1000
+            ),
+            ssh_approval_socket=ssh_approval_socket,
+            ssh_approval_timeout=_int(
+                "SSH_APPROVAL_TIMEOUT", 75, 15, 180
             ),
             state_db=state_db,
             helper_socket=helper_socket,
