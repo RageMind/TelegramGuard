@@ -4,7 +4,6 @@ import ipaddress
 import re
 import time
 from collections import defaultdict, deque
-from collections.abc import Deque
 
 _TTL_RE = re.compile(r"^([1-9][0-9]{0,4})([mhd])$")
 _UNIT_RE = re.compile(r"^[A-Za-z0-9@_.:-]{1,128}$")
@@ -66,7 +65,7 @@ class RateLimiter:
     def __init__(self, limit: int, window_seconds: float = 60.0) -> None:
         self.limit = limit
         self.window_seconds = window_seconds
-        self._events: dict[int, Deque[float]] = defaultdict(deque)
+        self._events: dict[int, deque[float]] = defaultdict(deque)
 
     def allow(self, actor_id: int) -> bool:
         now = time.monotonic()
