@@ -1160,13 +1160,13 @@ class BotApp:
                 parts = text.split()
                 if len(parts) != 1:
                     raise ValidationError("нужен только один IP")
-                address = parse_ip(parts[0])
+                address = str(parse_ip(parts[0]))
                 self.input_modes.pop(admin_id, None)
                 await self._confirmed_request(
                     chat_id,
                     admin_id,
                     "firewall.revoke",
-                    {"ip": str(address)},
+                    {"ip": address},
                     f"Удалить {address} из whitelist?",
                 )
                 return True
