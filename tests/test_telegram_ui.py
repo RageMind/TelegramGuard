@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from telegram_guard.telegram_ui import button, keyboard, screen
+from telegram_guard.telegram_ui import button, dashboard_screen, keyboard, screen
 
 
 def test_button_supports_bot_api_style() -> None:
@@ -33,3 +33,18 @@ def test_screen_uses_compact_control_os_layout() -> None:
     assert "<code>QyAi Control OS</code>" in value
     assert "<blockquote><b>Control Center</b>" in value
     assert "━━━━━━━━" not in value
+
+
+def test_dashboard_screen_has_rich_table_and_plain_fallback() -> None:
+    view = dashboard_screen(
+        "Control Center",
+        "🟢 VPS ONLINE",
+        [("RAM", "19%"), ("Access", "Telegram 2FA")],
+        footer="System checked",
+    )
+
+    assert "<table bordered compact>" in view.rich_html
+    assert "<h2>Control Center</h2>" in view.rich_html
+    assert "<td><b>RAM</b></td>" in view.rich_html
+    assert "<blockquote><b>Control Center</b>" in view.text
+    assert "Telegram 2FA" in view.text
