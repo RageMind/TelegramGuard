@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 from typing import Any
 
@@ -254,7 +255,7 @@ class BotApp:
             lines = []
             for row in rows:
                 stamp = dt.datetime.fromtimestamp(
-                    int(row["created_at"]), tz=dt.timezone.utc
+                    int(row["created_at"]), tz=dt.UTC
                 ).strftime("%Y-%m-%d %H:%MZ")
                 lines.append(
                     f"{stamp} · {row['action']} · {row['outcome']} · "
@@ -373,10 +374,8 @@ class BotApp:
             )
 
     async def run(self) -> None:
-        try:
+        with contextlib.suppress(TelegramAPIError):
             await self.api.set_commands()
-        except TelegramAPIError:
-            pass
 
         offset: int | None = None
         print(f"{BRAND}: bot started", flush=True)
@@ -403,10 +402,8 @@ class BotApp:
 
 def main() -> None:
     config = BotConfig.from_env()
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(BotApp(config).run())
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":
