@@ -6,9 +6,10 @@ SERVICE_USER="telegram-guard"
 INSTALL_ROOT="/opt/telegram-guard"
 CONFIG_ROOT="/etc/telegram-guard"
 STATE_ROOT="/var/lib/telegram-guard"
+HELPER_STATE_ROOT="/var/lib/telegram-guard-helper"
 BOT_ENV="${CONFIG_ROOT}/bot.env"
 HELPER_ENV="${CONFIG_ROOT}/helper.env"
-FIREWALL_STATE="${STATE_ROOT}/firewall.json"
+FIREWALL_STATE="${HELPER_STATE_ROOT}/firewall.json"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo ./packaging/install.sh" >&2
@@ -54,6 +55,12 @@ fi
 install -d -o root -g root -m 0755 "${INSTALL_ROOT}"
 install -d -o root -g "${SERVICE_USER}" -m 0750 "${CONFIG_ROOT}"
 install -d -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 0700 "${STATE_ROOT}"
+install -d -o root -g root -m 0700 "${HELPER_STATE_ROOT}"
+
+LEGACY_FIREWALL_STATE="${STATE_ROOT}/firewall.json"
+if [[ -s "${LEGACY_FIREWALL_STATE}" && ! -e "${FIREWALL_STATE}" ]]; then
+  install -m 0600 -o root -g root "${LEGACY_FIREWALL_STATE}" "${FIREWALL_STATE}"
+fi
 
 if [[ ! -d "${INSTALL_ROOT}/venv" ]]; then
   python3 -m venv "${INSTALL_ROOT}/venv"
@@ -106,6 +113,11 @@ if [[ ! -s "${HELPER_ENV}" ]]; then
 fi
 chown root:root "${HELPER_ENV}"
 chmod 0600 "${HELPER_ENV}"
+if grep -q '^FIREWALL_STATE=' "${HELPER_ENV}"; then
+  sed -i "s|^FIREWALL_STATE=.*|FIREWALL_STATE=${FIREWALL_STATE}|" "${HELPER_ENV}"
+else
+  echo "FIREWALL_STATE=${FIREWALL_STATE}" >>"${HELPER_ENV}"
+fi
 
 if [[ -s "${BOT_ENV}" ]]; then
   chown root:"${SERVICE_USER}" "${BOT_ENV}"
