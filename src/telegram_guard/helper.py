@@ -92,6 +92,15 @@ class HelperServer:
             return self.system.host_status()
         if action == "host.sessions":
             return self.system.sessions()
+        if action == "system.network":
+            return self.system.network_status()
+        if action == "system.health":
+            return self.system.system_health()
+        if action == "system.events":
+            minutes = int(args.get("minutes", 60))
+            if not 1 <= minutes <= 1440:
+                raise ValueError("minutes must be between 1 and 1440")
+            return self.system.system_events(minutes)
         if action == "ssh.recent":
             minutes = int(args.get("minutes", 30))
             if not 1 <= minutes <= 180:
