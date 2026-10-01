@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">TelegramGuard by QyAi</title>
+  <desc id="desc">QyAi TelegramGuard project mark</desc>
+  <rect width="1200" height="320" rx="40" fill="#07090d"/>
+  <rect x="2" y="2" width="1196" height="316" rx="38" fill="none" stroke="#202631" stroke-width="4"/>
+  <g transform="translate(72 68)">
+    <path d="M92 0 176 32v66c0 63-37 113-84 134C45 211 8 161 8 98V32L92 0Z" fill="#111722" stroke="#5b86ff" stroke-width="8"/>
+    <path d="m52 91 28 28 55-59" fill="none" stroke="#f3f6fa" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="300" y="132" fill="#f3f6fa" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="72" font-weight="700">TelegramGuard</text>
+  <text x="304" y="195" fill="#8b95a3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="30">Private VPS control plane over Telegram</text>
+  <text x="304" y="252" fill="#5b86ff" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="26" font-weight="600">QyAi • qyai.ru</text>
+</svg>
