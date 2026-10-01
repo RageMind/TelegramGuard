@@ -30,8 +30,9 @@ def test_keyboard_preserves_rows() -> None:
 def test_screen_uses_compact_control_os_layout() -> None:
     value = screen("Control Center", "ONLINE")
     assert "<b>TelegramGuard</b>" in value
-    assert "<code>QyAi Control OS</code>" in value
-    assert "<blockquote><b>Control Center</b>" in value
+    assert "<code>QyAi</code>" in value
+    assert "<b>Control Center</b>" in value
+    assert "<blockquote>" not in value
     assert "━━━━━━━━" not in value
 
 
