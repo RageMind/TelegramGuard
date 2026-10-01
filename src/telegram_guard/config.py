@@ -103,6 +103,8 @@ class HelperConfig:
     socket_group: str
     allowed_user: str
     firewall_mode: str
+    firewall_state: str
+    ssh_port: int
     nft_family: str
     nft_table: str
     nft_ipv4_set: str
@@ -117,6 +119,12 @@ class HelperConfig:
         ).strip()
         if not socket_path.startswith("/"):
             raise ConfigError("HELPER_SOCKET must be an absolute path")
+
+        firewall_state = os.environ.get(
+            "FIREWALL_STATE", "/var/lib/telegram-guard/firewall.json"
+        ).strip()
+        if not firewall_state.startswith("/"):
+            raise ConfigError("FIREWALL_STATE must be an absolute path")
 
         firewall_mode = os.environ.get("FIREWALL_MODE", "observe").strip().lower()
         if firewall_mode not in {"observe", "nft"}:
@@ -135,6 +143,8 @@ class HelperConfig:
             ).strip(),
             allowed_user=allowed_user,
             firewall_mode=firewall_mode,
+            firewall_state=firewall_state,
+            ssh_port=_int("SSH_PORT", 22, 1, 65535),
             nft_family=_identifier("NFT_FAMILY", "inet"),
             nft_table=_identifier("NFT_TABLE", "telegram_guard"),
             nft_ipv4_set=_identifier("NFT_IPV4_SET", "trusted_ipv4"),
