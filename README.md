@@ -164,6 +164,8 @@ The doctor command intentionally does not print the bot token or other secrets.
 
 ## Telegram UI
 
+TelegramGuard 0.4 uses the QyAi Control OS v2 interface: compact native Telegram screens, in-place navigation and semantic button styles. Primary actions use Telegram blue, approvals/grants use green, and destructive actions use red. The chat is treated as a control surface rather than a scrolling command console.
+
 The visible command menu is intentionally short:
 
 | Command | Purpose |
@@ -271,6 +273,7 @@ pytest -q
 
 - [Product specification](docs/PRODUCT_SPEC.md)
 - [Telegram Control OS UX](docs/UX_SPEC.md)
+- [Telegram UI v2](docs/TELEGRAM_UI_V2.md)
 - [Zero-VPS install flow](docs/INSTALL_FLOW.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Hardening](docs/HARDENING.md)
