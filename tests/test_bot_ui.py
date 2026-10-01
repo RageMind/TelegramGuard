@@ -15,5 +15,6 @@ def test_service_callback_token_is_short_and_stable() -> None:
 
 def test_audit_labels_cover_sensitive_mutations() -> None:
     assert _ACTION_LABELS["firewall.allow"] == "Доступ выдан"
+    assert _ACTION_LABELS["firewall.make_permanent"] == "Доступ сделан постоянным"
     assert _ACTION_LABELS["firewall.revoke"] == "Доступ отозван"
     assert _ACTION_LABELS["service.restart"] == "Сервис перезапущен"
