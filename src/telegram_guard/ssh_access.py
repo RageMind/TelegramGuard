@@ -48,6 +48,13 @@ def _default_use_pam_probe() -> bool:
 
 
 def _default_pam_exec_probe() -> bool:
+    direct = (
+        Path("/lib/security/pam_exec.so"),
+        Path("/usr/lib/security/pam_exec.so"),
+    )
+    if any(candidate.is_file() for candidate in direct):
+        return True
+
     roots = (Path("/lib"), Path("/usr/lib"))
     for root in roots:
         if not root.exists():
@@ -146,9 +153,11 @@ class SshApprovalControl:
             pam_enabled = False
             pam_file_ok = False
 
-        broker_ready = self.socket_path.exists() and stat.S_ISSOCK(
-            self.socket_path.stat().st_mode
-        )
+        broker_ready = False
+        try:
+            broker_ready = stat.S_ISSOCK(self.socket_path.stat().st_mode)
+        except OSError:
+            broker_ready = False
         use_pam = self.use_pam_probe()
         pam_exec = self.pam_exec_probe()
         ready = pam_file_ok and broker_ready and use_pam and pam_exec
