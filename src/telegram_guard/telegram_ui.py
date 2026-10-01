@@ -70,7 +70,8 @@ def dashboard_screen(
     if note:
         fallback_lines.extend(["", html.escape(note, quote=False)])
 
-    fallback = screen(title, "\n".join(fallback_lines), footer)
+    safe_footer = html.escape(footer, quote=False) if footer else None
+    fallback = screen(title, "\n".join(fallback_lines), safe_footer)
 
     cells = []
     for label, value in rows:
