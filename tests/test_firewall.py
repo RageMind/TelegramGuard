@@ -123,3 +123,25 @@ def test_ruleset_only_filters_configured_ssh_port(
     assert "tcp dport 22" in ruleset
     assert "@trusted_ipv4 accept" in ruleset
     assert "reject with tcp reset" in ruleset
+
+
+def test_apply_entries_replaces_existing_table_in_single_script(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = controller(tmp_path, monkeypatch)
+    scripts: list[str] = []
+    monkeypatch.setattr(firewall, "_run_script", scripts.append)
+
+    entries = {
+        "203.0.113.42": {
+            "expires_at": None,
+            "source": "bootstrap",
+        }
+    }
+    firewall._apply_entries(entries)
+
+    assert len(scripts) == 1
+    assert scripts[0].startswith("delete table inet telegram_guard\n")
+    assert "table inet telegram_guard" in scripts[0]
+    assert firewall._load_entries() == entries
