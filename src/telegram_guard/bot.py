@@ -823,7 +823,7 @@ class BotApp:
                 "approval broker."
             )
 
-        rows = [
+        rows: list[tuple[str, object]] = [
             ("Telegram 2FA", "ON" if enabled else "OFF"),
             ("Broker", "ready" if broker_ready else "not ready"),
             ("PAM", "UsePAM yes" if use_pam else "not ready"),
@@ -1704,20 +1704,36 @@ class BotApp:
                 "Теперь после правильного пароля или SSH-ключа каждый "
                 "новый вход ждёт подтверждения в Telegram."
             )
-            keyboard = keyboard(
-                [button("Открыть защиту", "ui:access", style="primary")],
-                [button("Control Center", "ui:home")],
-            )
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        button(
+                            "Открыть защиту",
+                            "ui:access",
+                            style="primary",
+                        )
+                    ],
+                    [button("Control Center", "ui:home")],
+                ]
+            }
         elif action == "ssh.approval.disable":
             body = (
                 "🟡 <b>Telegram 2FA отключён</b>\n\n"
                 "Для новых SSH-сессий снова достаточно обычной "
                 "аутентификации OpenSSH, если другая защита не активна."
             )
-            keyboard = keyboard(
-                [button("Открыть защиту", "ui:access", style="primary")],
-                [button("Control Center", "ui:home")],
-            )
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        button(
+                            "Открыть защиту",
+                            "ui:access",
+                            style="primary",
+                        )
+                    ],
+                    [button("Control Center", "ui:home")],
+                ]
+            }
         elif action == "firewall.revoke":
             removed = bool(result.get("removed")) if isinstance(result, dict) else False
             state = "удалён" if removed else "уже отсутствовал"
