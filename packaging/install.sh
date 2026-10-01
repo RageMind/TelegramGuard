@@ -115,20 +115,45 @@ if [[ -s "${BOT_ENV}" ]] && grep -q '^TELEGRAM_BOT_TOKEN=.' "${BOT_ENV}" && grep
 fi
 
 EXISTING_MANAGED=0
-if grep -q '^FIREWALL_MODE=nft
-cat >/usr/local/sbin/telegram-guard-firewall-off <<'EOF'
+if grep -q '^FIREWALL_MODE=nft$' "${HELPER_ENV}" \
+  && [[ -s "${FIREWALL_STATE}" ]]; then
+  EXISTING_MANAGED=1
+fi
+
+if [[ "${BOT_READY}" -eq 1 && -n "${SSH_CONNECTION:-}" ]]; then
+  python3 "${ROOT_DIR}/scripts/enable-managed-firewall.py" \
+    --helper-env "${HELPER_ENV}" \
+    --state "${FIREWALL_STATE}"
+elif [[ "${EXISTING_MANAGED}" -eq 1 ]]; then
+  echo "Existing managed SSH whitelist detected; preserving it."
+else
+  if grep -q '^FIREWALL_MODE=' "${HELPER_ENV}"; then
+    sed -i 's/^FIREWALL_MODE=.*/FIREWALL_MODE=observe/' "${HELPER_ENV}"
+  else
+    echo 'FIREWALL_MODE=observe' >>"${HELPER_ENV}"
+  fi
+fi
+
+cat >/usr/local/sbin/telegram-guard-firewall-off <<'EOF_RECOVERY'
 #!/usr/bin/env bash
 set -euo pipefail
 ENV_FILE=/etc/telegram-guard/helper.env
-NFT_FAMILY=inet
-NFT_TABLE=telegram_guard
 
-if [[ -f "${ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
-fi
+value_from_env() {
+  local key="$1"
+  local fallback="$2"
+  local value=""
+  if [[ -f "${ENV_FILE}" ]]; then
+    value="$(awk -F= -v key="${key}" '$1 == key {print substr($0, index($0, "=") + 1)}' "${ENV_FILE}" | tail -n1)"
+  fi
+  if [[ -z "${value}" || ! "${value}" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+    value="${fallback}"
+  fi
+  printf '%s' "${value}"
+}
+
+NFT_FAMILY="$(value_from_env NFT_FAMILY inet)"
+NFT_TABLE="$(value_from_env NFT_TABLE telegram_guard)"
 
 nft delete table "${NFT_FAMILY}" "${NFT_TABLE}" 2>/dev/null || true
 
@@ -142,109 +167,57 @@ fi
 
 systemctl restart telegram-guard-helper.service 2>/dev/null || true
 echo "TelegramGuard managed SSH whitelist disabled."
-EOF
+EOF_RECOVERY
 chmod 0700 /usr/local/sbin/telegram-guard-firewall-off
 
 systemctl daemon-reload
+systemctl enable telegram-guard-helper.service >/dev/null
+systemctl restart telegram-guard-helper.service
+sleep 1
+
+if ! systemctl is-active --quiet telegram-guard-helper.service; then
+  echo "Helper failed to start. Rolling firewall back to observe mode." >&2
+  /usr/local/sbin/telegram-guard-firewall-off || true
+  journalctl -u telegram-guard-helper.service -n 40 --no-pager >&2 || true
+  exit 1
+fi
 
 if [[ "${BOT_READY}" -eq 1 ]]; then
-  systemctl enable telegram-guard-helper.service telegram-guard.service >/dev/null
-  systemctl restart telegram-guard-helper.service
+  systemctl enable telegram-guard.service >/dev/null
   systemctl restart telegram-guard.service
-  sleep 2
+  sleep 1
 
-  systemctl is-active --quiet telegram-guard-helper.service || {
-    echo "Helper failed to start. Rolling firewall back to observe mode." >&2
-    /usr/local/sbin/telegram-guard-firewall-off || true
-    journalctl -u telegram-guard-helper.service -n 40 --no-pager >&2 || true
-    exit 1
-  }
-  systemctl is-active --quiet telegram-guard.service || {
+  if ! systemctl is-active --quiet telegram-guard.service; then
     echo "Bot failed to start. Bootstrap SSH access remains preserved." >&2
     journalctl -u telegram-guard.service -n 40 --no-pager >&2 || true
     exit 1
-  }
-fi
-
-echo
-VERSION=$("${INSTALL_ROOT}/venv/bin/python" -c 'from telegram_guard import __version__; print(__version__)' 2>/dev/null || printf 'unknown')
-echo "TelegramGuard ${VERSION} installed."
-if [[ "${BOT_READY}" -eq 1 ]]; then
-  echo "Bot: RUNNING"
-else
-  echo "Bot: NOT CONFIGURED"
-fi
-
-if grep -q '^FIREWALL_MODE=nft$' "${HELPER_ENV}"; then
-  echo "SSH whitelist: ACTIVE"
-  echo "Current SSH client is pinned as the bootstrap address."
-  echo "Emergency recovery: /usr/local/sbin/telegram-guard-firewall-off"
-else
-  echo "SSH whitelist: OBSERVE MODE"
-fi
-
-echo "QyAi • https://qyai.ru"
- "${HELPER_ENV}" && [[ -s "${STATE_ROOT}/firewall.json" ]]; then
-  EXISTING_MANAGED=1
-fi
-
-if [[ "${BOT_READY}" -eq 1 && -n "${SSH_CONNECTION:-}" ]]; then
-  python3 "${ROOT_DIR}/scripts/enable-managed-firewall.py"     --helper-env "${HELPER_ENV}"     --state "${STATE_ROOT}/firewall.json"
-elif [[ "${EXISTING_MANAGED}" -eq 1 ]]; then
-  echo "Existing managed SSH whitelist detected; preserving it."
-else
-  if grep -q '^FIREWALL_MODE=' "${HELPER_ENV}"; then
-    sed -i 's/^FIREWALL_MODE=.*/FIREWALL_MODE=observe/' "${HELPER_ENV}"
-  else
-    echo 'FIREWALL_MODE=observe' >>"${HELPER_ENV}"
   fi
+else
+  systemctl disable --now telegram-guard.service >/dev/null 2>&1 || true
 fi
 
-cat >/usr/local/sbin/telegram-guard-firewall-off <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-nft delete table inet telegram_guard 2>/dev/null || true
-if [[ -f /etc/telegram-guard/helper.env ]]; then
-  sed -i 's/^FIREWALL_MODE=.*/FIREWALL_MODE=observe/' /etc/telegram-guard/helper.env
-fi
-systemctl restart telegram-guard-helper.service 2>/dev/null || true
-echo "TelegramGuard managed SSH whitelist disabled."
-EOF
-chmod 0700 /usr/local/sbin/telegram-guard-firewall-off
-
-systemctl daemon-reload
-
-if [[ "${BOT_READY}" -eq 1 ]]; then
-  systemctl enable telegram-guard-helper.service telegram-guard.service >/dev/null
-  systemctl restart telegram-guard-helper.service
-  systemctl restart telegram-guard.service
-  sleep 2
-
-  systemctl is-active --quiet telegram-guard-helper.service || {
-    echo "Helper failed to start. Rolling firewall back to observe mode." >&2
-    /usr/local/sbin/telegram-guard-firewall-off || true
-    exit 1
-  }
-  systemctl is-active --quiet telegram-guard.service || {
-    echo "Bot failed to start. Check: journalctl -u telegram-guard -n 100" >&2
-    exit 1
-  }
-fi
+VERSION="$("${INSTALL_ROOT}/venv/bin/python" -c 'from telegram_guard import __version__; print(__version__)' 2>/dev/null || printf 'unknown')"
+FIREWALL_MODE="$(awk -F= '$1 == "FIREWALL_MODE" {print $2}' "${HELPER_ENV}" | tail -n1)"
+SSH_PORT="$(awk -F= '$1 == "SSH_PORT" {print $2}' "${HELPER_ENV}" | tail -n1)"
 
 echo
-echo "TelegramGuard installed."
+echo "TelegramGuard ${VERSION} installed."
+echo "Helper: RUNNING"
 if [[ "${BOT_READY}" -eq 1 ]]; then
   echo "Bot: RUNNING"
 else
   echo "Bot: NOT CONFIGURED"
 fi
 
-if grep -q '^FIREWALL_MODE=nft$' "${HELPER_ENV}"; then
+if [[ "${FIREWALL_MODE}" == "nft" ]]; then
   echo "SSH whitelist: ACTIVE"
-  echo "Current SSH client is pinned as the bootstrap address."
+  echo "SSH port: ${SSH_PORT:-unknown}"
+  echo "Current SSH client is pinned as protected bootstrap access."
   echo "Emergency recovery: /usr/local/sbin/telegram-guard-firewall-off"
 else
   echo "SSH whitelist: OBSERVE MODE"
+  echo "Managed mode needs a configured bot and a valid active SSH session."
 fi
 
+echo "Next: open Telegram and send /start"
 echo "QyAi • https://qyai.ru"
