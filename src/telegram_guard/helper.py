@@ -40,7 +40,7 @@ class HelperServer:
             _pid, uid, _gid = struct.unpack("3i", credentials)
         except OSError:
             return False
-        return uid == self.allowed_uid
+        return int(uid) == self.allowed_uid
 
     async def handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
