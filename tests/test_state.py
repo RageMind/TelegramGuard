@@ -33,3 +33,16 @@ def test_audit_round_trip(tmp_path: Path) -> None:
     assert rows[0]["actor_id"] == 42
     assert rows[0]["action"] == "host.status"
     assert rows[0]["details"] == {"source": "test"}
+
+
+def test_audit_pagination_and_count(tmp_path: Path) -> None:
+    store = StateStore(str(tmp_path / "state.sqlite3"))
+    for index in range(5):
+        store.audit(42, f"action.{index}", "ok")
+
+    assert store.audit_count() == 5
+    first = store.audit_page(limit=2, offset=0)
+    second = store.audit_page(limit=2, offset=2)
+
+    assert [row["action"] for row in first] == ["action.4", "action.3"]
+    assert [row["action"] for row in second] == ["action.2", "action.1"]
