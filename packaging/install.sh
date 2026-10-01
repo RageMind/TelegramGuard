@@ -8,6 +8,7 @@ CONFIG_ROOT="/etc/telegram-guard"
 STATE_ROOT="/var/lib/telegram-guard"
 BOT_ENV="${CONFIG_ROOT}/bot.env"
 HELPER_ENV="${CONFIG_ROOT}/helper.env"
+FIREWALL_STATE="${STATE_ROOT}/firewall.json"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "Run as root: sudo ./packaging/install.sh" >&2
