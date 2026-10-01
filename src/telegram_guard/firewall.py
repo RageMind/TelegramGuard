@@ -360,6 +360,30 @@ class NftWhitelist:
             "set": self._set_for(address),
         }
 
+    def make_permanent(self, ip_value: str) -> dict[str, str | bool]:
+        self._assert_write_mode()
+        address = parse_ip(ip_value)
+        entries = self._load_entries()
+        existing = entries.get(str(address))
+        if not isinstance(existing, dict):
+            raise ValueError("whitelist entry does not exist")
+        if existing.get("source") == "bootstrap":
+            return {
+                "ip": str(address),
+                "permanent": True,
+            }
+
+        existing["expires_at"] = None
+        existing["source"] = "telegram-permanent"
+        if not isinstance(existing.get("added_at"), int):
+            existing["added_at"] = int(time.time())
+
+        self._apply_entries(entries)
+        return {
+            "ip": str(address),
+            "permanent": True,
+        }
+
     def revoke(self, ip_value: str) -> dict[str, str | bool]:
         self._assert_write_mode()
         address = parse_ip(ip_value)
