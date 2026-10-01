@@ -16,7 +16,7 @@ class TelegramAPI:
         self._base = f"https://api.telegram.org/bot{token}"
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(40.0, connect=10.0),
-            headers={"User-Agent": f"TelegramGuard/0.1 ({BRAND})"},
+            headers={"User-Agent": "TelegramGuard/0.1 (QyAi)"},
         )
 
     async def close(self) -> None:
