@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from telegram_guard.bot import _ACTION_LABELS, _service_token
+from telegram_guard.bot import _ACTION_LABELS, _security_keyboard, _service_token
 
 
 def test_service_callback_token_is_short_and_stable() -> None:
@@ -23,3 +23,19 @@ def test_audit_labels_cover_sensitive_mutations() -> None:
 def test_audit_labels_cover_ssh_approval_toggle() -> None:
     assert _ACTION_LABELS["ssh.approval.enable"] == "SSH 2FA включён"
     assert _ACTION_LABELS["ssh.approval.disable"] == "SSH 2FA отключён"
+
+
+def test_security_keyboard_exposes_ssh_2fa_toggle() -> None:
+    disabled = _security_keyboard(False)["inline_keyboard"]
+    enabled = _security_keyboard(True)["inline_keyboard"]
+
+    assert disabled[0][0] == {
+        "text": "Включить Telegram 2FA",
+        "callback_data": "ssh2fa:enable",
+        "style": "success",
+    }
+    assert enabled[0][0] == {
+        "text": "Отключить Telegram 2FA",
+        "callback_data": "ssh2fa:disable",
+        "style": "danger",
+    }
