@@ -8,8 +8,8 @@ import shutil
 import stat
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from telegram_guard.security import ValidationError, validate_unit
 
