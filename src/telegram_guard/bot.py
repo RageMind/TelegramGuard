@@ -180,17 +180,34 @@ def _access_keyboard() -> dict[str, Any]:
     )
 
 
-def _security_keyboard() -> dict[str, Any]:
+def _security_keyboard(approval_enabled: bool) -> dict[str, Any]:
+    toggle = (
+        button(
+            "Отключить Telegram 2FA",
+            "ssh2fa:disable",
+            style="danger",
+        )
+        if approval_enabled
+        else button(
+            "Включить Telegram 2FA",
+            "ssh2fa:enable",
+            style="success",
+        )
+    )
     return keyboard(
+        [toggle],
         [
             button("SSH события", "ui:ssh"),
             button("Сессии", "ui:sessions"),
         ],
         [
-            button("Обновить", "ui:security"),
+            button("Управление доступом", "ui:access", style="primary"),
             button("Активность", "ui:audit"),
         ],
-        [button("Control Center", "ui:home", style="primary")],
+        [
+            button("Обновить", "ui:security"),
+            button("Control Center", "ui:home"),
+        ],
     )
 
 
@@ -1144,7 +1161,7 @@ class BotApp:
         await self._show(
             chat_id,
             view,
-            _security_keyboard(),
+            _security_keyboard(approval_active),
             message_id,
         )
 
