@@ -85,6 +85,8 @@ class BotConfig:
     rate_limit_per_minute: int
     alert_interval_seconds: int
     ssh_failed_alert_threshold: int
+    ram_alert_threshold: int
+    disk_alert_threshold: int
     ssh_approval_enabled: bool
     ssh_approval_socket: str
     ssh_approval_timeout: int
@@ -124,6 +126,12 @@ class BotConfig:
             ),
             ssh_failed_alert_threshold=_int(
                 "SSH_FAILED_ALERT_THRESHOLD", 10, 1, 1000
+            ),
+            ram_alert_threshold=_int(
+                "RAM_ALERT_THRESHOLD", 90, 50, 99
+            ),
+            disk_alert_threshold=_int(
+                "DISK_ALERT_THRESHOLD", 90, 50, 99
             ),
             ssh_approval_enabled=_bool("SSH_APPROVAL_ENABLED", False),
             ssh_approval_socket=ssh_approval_socket,

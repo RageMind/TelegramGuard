@@ -39,9 +39,10 @@ async def test_configure_profile_sets_clean_native_bot_shell(
     assert [item["command"] for item in commands] == [
         "start",
         "status",
+        "doctor",
+        "network",
         "security",
         "settings",
-        "help",
     ]
     assert calls[1][1]["menu_button"]["type"] == "commands"
 

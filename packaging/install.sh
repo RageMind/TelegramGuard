@@ -99,6 +99,8 @@ TELEGRAM_POLL_TIMEOUT=25
 RATE_LIMIT_PER_MINUTE=20
 ALERT_INTERVAL_SECONDS=60
 SSH_FAILED_ALERT_THRESHOLD=10
+RAM_ALERT_THRESHOLD=90
+DISK_ALERT_THRESHOLD=90
 SSH_APPROVAL_ENABLED=false
 SSH_APPROVAL_SOCKET=/run/telegram-guard-bot/approval.sock
 SSH_APPROVAL_TIMEOUT=75
@@ -138,11 +140,7 @@ if grep -q '^FIREWALL_MODE=nft$' "${HELPER_ENV}" \
   EXISTING_MANAGED=1
 fi
 
-if [[ "${BOT_READY}" -eq 1 && -n "${SSH_CONNECTION:-}" ]]; then
-  python3 "${ROOT_DIR}/scripts/enable-managed-firewall.py" \
-    --helper-env "${HELPER_ENV}" \
-    --state "${FIREWALL_STATE}"
-elif [[ "${EXISTING_MANAGED}" -eq 1 ]]; then
+if [[ "${EXISTING_MANAGED}" -eq 1 ]]; then
   echo "Existing managed SSH whitelist detected; preserving it."
 else
   if grep -q '^FIREWALL_MODE=' "${HELPER_ENV}"; then
@@ -150,6 +148,8 @@ else
   else
     echo 'FIREWALL_MODE=observe' >>"${HELPER_ENV}"
   fi
+  echo "SSH firewall remains in observe mode."
+  echo "Enable protection explicitly from TelegramGuard after validation."
 fi
 
 cat >/usr/local/sbin/telegram-guard-firewall-off <<'EOF_RECOVERY'
@@ -236,8 +236,9 @@ if [[ "${FIREWALL_MODE}" == "nft" ]]; then
   echo "Emergency recovery: /usr/local/sbin/telegram-guard-firewall-off"
 else
   echo "SSH whitelist: OBSERVE MODE"
-  echo "Managed mode needs a configured bot and a valid active SSH session."
 fi
 
+echo "Telegram 2FA can be enabled or disabled from TelegramGuard > Доступ."
+echo "The installer never enables a new SSH firewall automatically."
 echo "Next: open Telegram and send /start"
 echo "QyAi • https://qyai.ru"

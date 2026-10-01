@@ -34,7 +34,7 @@ SystemCallArchitectures=native
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
 AmbientCapabilities=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
-ReadWritePaths=/run/telegram-guard /var/lib/telegram-guard-helper
+ReadWritePaths=/run/telegram-guard /var/lib/telegram-guard-helper /etc/pam.d/sshd
 ReadOnlyPaths=/etc/telegram-guard /var/log/journal /run/log/journal
 
 [Install]
