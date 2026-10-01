@@ -2451,6 +2451,45 @@ class BotApp:
         if not helper_ok:
             return
 
+        if isinstance(status, dict):
+            total = int(status.get("memory_total", 0))
+            available = int(status.get("memory_available", 0))
+            ram = _percent(max(total - available, 0), total)
+            disk_total = int(status.get("disk_total", 0))
+            disk_free = int(status.get("disk_free", 0))
+            disk = _percent(max(disk_total - disk_free, 0), disk_total)
+
+            await self._set_alert(
+                "ram",
+                ram >= self.config.ram_alert_threshold,
+                (
+                    "🟡 RAM достигла "
+                    f"<b>{ram}%</b> "
+                    f"(порог {self.config.ram_alert_threshold}%)."
+                ),
+                "🟢 Использование RAM вернулось ниже порога.",
+            )
+            await self._set_alert(
+                "disk",
+                disk >= self.config.disk_alert_threshold,
+                (
+                    "🟡 Диск заполнен на "
+                    f"<b>{disk}%</b> "
+                    f"(порог {self.config.disk_alert_threshold}%)."
+                ),
+                "🟢 Использование диска вернулось ниже порога.",
+            )
+
+        health = await self.helper.call("system.health")
+        if isinstance(health, dict):
+            failed_units = int(health.get("failed_unit_count", 0))
+            await self._set_alert(
+                "failed-units",
+                failed_units > 0,
+                f"🔴 Systemd failed units: <b>{failed_units}</b>.",
+                "🟢 Systemd failed units больше не обнаружены.",
+            )
+
         firewall = await self.helper.call("firewall.health")
         approval = await self._approval_status()
         approval_enabled = bool(approval.get("enabled"))
