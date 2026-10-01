@@ -5,170 +5,202 @@
 </p>
 
 <p align="center">
-  <strong>Telegram-first control plane for a private VPS.</strong><br>
-  Whitelist access, review SSH activity, inspect host health, and run a small set of explicitly allowed administrative actions without exposing a general remote shell.
+  <strong>Telegram-first VPS Control OS by QyAi.</strong><br>
+  Manage access, inspect SSH activity, watch server health, control approved services and audit sensitive actions without exposing a generic remote shell.
 </p>
 
 <p align="center">
-  <a href="https://qyai.ru">QyAi</a> · Built for defensive server administration · Apache-2.0
+  <a href="https://qyai.ru">QyAi</a> · Apache-2.0 · Linux / systemd · Python 3.11+
 </p>
 
-> [!IMPORTANT]
-> TelegramGuard is intentionally **not** a “run any shell command from Telegram” bot. The public design uses an unprivileged Telegram process and a separate local root helper with a finite allowlist of actions.
+> TelegramGuard is built for defensive server administration. It intentionally does not provide arbitrary shell execution, unrestricted filesystem access, SSH key storage, or direct Docker socket access.
 
-## What it does
+## What the project is
 
-- Telegram admin authorization by numeric user ID, never by mutable username.
-- Temporary IPv4/IPv6 whitelist entries with TTL through pre-existing nftables sets.
-- Revoke and list current whitelist entries.
-- VPS health summary: uptime, load, memory and filesystem usage.
-- Active login/session view.
-- Recent SSH security events from journald.
-- Status and restart for explicitly allowlisted systemd services.
-- Two-step confirmation for service restarts and other sensitive actions.
-- Local SQLite audit trail.
-- Unix-socket privilege separation between the bot and the root helper.
-- Rate limiting, strict input validation and bounded output.
-- No arbitrary command execution, no `shell=True`, no remote Docker socket.
-- Public-repository safety scanner that rejects common secret formats and accidental real IP addresses.
+TelegramGuard turns Telegram into a compact control surface for a private VPS.
 
-## Security model
+The interface is organized like a small operating system rather than a command bot:
+
+- **System** — uptime, RAM, disk, load, sessions;
+- **Access** — managed SSH whitelist, TTL, grant/revoke/extend;
+- **Security** — whitelist health, SSH successes/failures, active sessions;
+- **Services** — allowlisted systemd units, status, logs, confirmed restart;
+- **Activity** — local administrative audit;
+- **Settings** — runtime configuration summary and self-test.
+
+Slash commands remain a fallback. Normal use starts from `/start` and the inline control panel.
+
+## Security architecture
 
 ```text
-Telegram
-   │ HTTPS long polling
-   ▼
-telegram-guard (unprivileged)
-   │ authenticated admin ID
-   │ validated request
-   ▼
-/run/telegram-guard/helper.sock
-   │ local Unix socket, group-restricted
-   ▼
-telegram-guard-helper (root)
-   │ fixed action registry only
-   ├── nft
-   ├── journalctl
-   ├── systemctl (allowlisted units)
-   └── local host metrics
+Telegram private chat
+        │
+        ▼
+telegram-guard
+unprivileged service
+        │
+        │ local Unix socket
+        ▼
+telegram-guard-helper
+root, finite action registry
+        │
+        ├── nftables managed SSH whitelist
+        ├── systemd allowlisted services
+        ├── journald bounded reads
+        └── local host metrics
 ```
 
-The root helper does not accept arbitrary executable names or shell fragments. Every privileged action has its own validator and subprocess argument vector.
+The privileged helper has no generic `exec` action. Every privileged operation has a dedicated action name, argument validation and bounded output.
 
-## Quick start
+## Zero-VPS install
 
-Requirements:
-
-- Ubuntu/Debian-style Linux with systemd;
-- Python 3.11+;
-- nftables if whitelist control is enabled;
-- a Telegram bot token;
-- your numeric Telegram user ID.
+Supported happy path: Ubuntu/Debian-style systemd host, active SSH session, bot token and numeric Telegram user ID.
 
 ```bash
-git clone https://github.com/RageMind/TelegramGuard.git
-cd TelegramGuard
+apt-get update
+apt-get install -y git
+
+git clone --depth 1 https://github.com/RageMind/TelegramGuard.git /opt/telegramguard-src
+cd /opt/telegramguard-src
+
 sudo ./packaging/install.sh
 ```
 
-The installer creates the service account and systemd units, but **does not edit SSH or firewall policy and does not start the services**.
+The installer can install missing Python/venv/nftables dependencies on apt-based systems.
 
-Then:
+On first setup it asks for:
 
-```bash
-sudo cp /etc/telegram-guard/bot.env.example /etc/telegram-guard/bot.env
-sudo cp /etc/telegram-guard/helper.env.example /etc/telegram-guard/helper.env
-sudo chmod 600 /etc/telegram-guard/bot.env /etc/telegram-guard/helper.env
-sudoedit /etc/telegram-guard/bot.env
-sudoedit /etc/telegram-guard/helper.env
+- Telegram bot token;
+- numeric Telegram administrator ID.
 
-sudo systemctl enable --now telegram-guard-helper
-sudo systemctl enable --now telegram-guard
+When installation runs from a valid SSH session, TelegramGuard:
+
+1. detects the SSH source IP;
+2. detects the current SSH port;
+3. stores the current source as a protected bootstrap entry;
+4. enables its own managed nftables table;
+5. starts helper and bot;
+6. verifies both services.
+
+Then open the bot and send:
+
+```text
+/start
 ```
 
-See [docs/INSTALL.md](docs/INSTALL.md) before enabling whitelist enforcement.
+### Important safety behavior
 
-## Telegram commands
+TelegramGuard manages only its own nftables table. It does not flush the host firewall, change the SSH port, or edit `sshd_config`.
+
+A protected bootstrap entry cannot be revoked from Telegram.
+
+Emergency local recovery:
+
+```bash
+sudo /usr/local/sbin/telegram-guard-firewall-off
+```
+
+That command deletes only TelegramGuard's managed table and switches the helper back to observe mode.
+
+## Update
+
+```bash
+cd /opt/telegramguard-src
+git pull --ff-only
+sudo ./packaging/install.sh
+```
+
+Re-running the installer is designed to preserve:
+
+- bot identity configuration;
+- existing managed whitelist state;
+- bootstrap entry;
+- managed service list.
+
+## Local diagnostics
+
+```bash
+sudo /opt/telegram-guard/venv/bin/telegram-guard-doctor
+```
+
+Machine-readable output:
+
+```bash
+sudo /opt/telegram-guard/venv/bin/telegram-guard-doctor --json
+```
+
+The doctor command intentionally does not print the bot token or other secrets.
+
+## Telegram UI
+
+The visible command menu is intentionally short:
 
 | Command | Purpose |
 | --- | --- |
-| `/status` | Host uptime, load, memory and disk |
-| `/sessions` | Logged-in sessions |
-| `/ssh [minutes]` | Recent SSH security events |
-| `/allow <ip> [ttl]` | Add a temporary whitelist entry |
-| `/revoke <ip>` | Remove a whitelist entry |
-| `/whitelist` | List active whitelist entries |
-| `/services` | Show managed systemd units |
-| `/restart <unit>` | Request a confirmed restart of an allowlisted unit |
-| `/audit [count]` | Show recent TelegramGuard audit entries |
-| `/help` | Command help |
+| `/start` | Open Control Center |
+| `/status` | Open System |
+| `/help` | Open Control Center / help |
 
-TTL examples: `15m`, `1h`, `8h`, `1d`. Permanent entries are intentionally not created from Telegram.
+Advanced command compatibility remains available for administrators, but the project is designed to be operated through buttons and guided flows.
 
-## Firewall integration
+### Access manager
 
-TelegramGuard manages nftables **sets**, not your whole firewall. This is deliberate.
+The Access screen shows structured whitelist entries.
 
-By default:
+Temporary access supports:
 
-```env
-FIREWALL_MODE=observe
+- 15 minutes;
+- 1 hour;
+- 8 hours;
+- 1 day;
+- 7 days;
+- custom TTL up to 7 days;
+- extension from the entry detail screen;
+- confirmed revoke.
+
+Bootstrap access is visually marked and protected.
+
+### Service control
+
+Only units in `MANAGED_SERVICES` can be accessed.
+
+Supported operations:
+
+- list;
+- status;
+- bounded recent logs;
+- confirmed restart.
+
+There is no unrestricted `systemctl` command path.
+
+## Runtime files
+
+Runtime identity and secrets stay outside Git:
+
+```text
+/etc/telegram-guard/bot.env
+/etc/telegram-guard/helper.env
+/var/lib/telegram-guard/state.sqlite3
+/var/lib/telegram-guard/firewall.json
+/run/telegram-guard/helper.sock
 ```
 
-In observe mode, whitelist mutation commands are disabled.
+Never publish these files.
 
-To use nftables mode, create the table/sets yourself (an example is in [packaging/nftables/telegram-guard.nft.example](packaging/nftables/telegram-guard.nft.example)), verify you still have console access, then set:
+## Public-repository safety
 
-```env
-FIREWALL_MODE=nft
-NFT_TABLE=telegram_guard
-NFT_IPV4_SET=trusted_ipv4
-NFT_IPV6_SET=trusted_ipv6
-```
-
-TelegramGuard will refuse to create missing tables, chains, or sets automatically. That prevents a bad deployment from silently replacing the host firewall.
-
-## Public-repository hygiene
-
-This repository contains no deployment-specific values. Runtime secrets and identity data belong in `/etc/telegram-guard/*.env` and `/var/lib/telegram-guard/`, both outside the repository.
-
-Before every CI build:
+CI runs:
 
 ```bash
 python scripts/public_safety_scan.py .
+ruff check .
+mypy src
+pytest -q
 ```
 
-The scanner rejects:
+The public safety scanner rejects common credential formats, private key blocks, runtime databases/logs and non-documentation public IPv4 literals.
 
-- Telegram bot tokens;
-- GitHub/OpenAI/Hugging Face/Slack-style token patterns;
-- private key blocks;
-- non-documentation public IPv4 addresses;
-- committed `.env`, SQLite databases, logs and key files.
-
-If you find a security issue, follow [SECURITY.md](SECURITY.md) and do not open a public exploit report.
-
-## Design principles
-
-1. **Least privilege.** Telegram handling runs without root.
-2. **No generic RCE.** Administrative operations are explicit capabilities.
-3. **Fail closed.** Invalid IDs, IPs, TTLs, units and callbacks are denied.
-4. **Short-lived access.** Whitelist changes from chat require TTLs.
-5. **Human confirmation.** Sensitive changes use single-use confirmation tokens.
-6. **Auditability.** Every accepted or denied administrative request is recorded.
-7. **Safe by default.** Firewall write mode is off until explicitly configured.
-8. **No deployment identity in Git.** Tokens, real IPs, chat IDs and hostnames are runtime configuration.
-
-## Project layout
-
-```text
-src/telegram_guard/        application + privileged helper
-packaging/systemd/         hardened systemd units
-packaging/nftables/        optional nftables integration example
-scripts/                   public-repo safety tooling
-tests/                     unit tests
-docs/                      deployment and security documentation
-```
+CodeQL and Dependabot are also configured.
 
 ## Development
 
@@ -176,22 +208,46 @@ docs/                      deployment and security documentation
 python -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev]"
+
+python scripts/public_safety_scan.py .
 ruff check .
 mypy src
-pytest
-python scripts/public_safety_scan.py .
+pytest -q
 ```
+
+## Documentation
+
+- [Product specification](docs/PRODUCT_SPEC.md)
+- [Telegram Control OS UX](docs/UX_SPEC.md)
+- [Zero-VPS install flow](docs/INSTALL_FLOW.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Hardening](docs/HARDENING.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Public release checklist](docs/PUBLIC_RELEASE.md)
+- [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
+
+## Project principles
+
+1. Least privilege.
+2. Private-chat administration only.
+3. No generic remote command execution.
+4. Short-lived access by default.
+5. Human confirmation for sensitive operations.
+6. Persistent audit.
+7. Fail closed on malformed input.
+8. Deployment identity never belongs in public Git.
+9. UI should be usable without memorizing Linux commands.
+10. Local recovery must remain possible when Telegram is unavailable.
 
 ## Brand
 
 **TelegramGuard** is a QyAi project.
 
 - Product: TelegramGuard
-- Creator: QyAi
+- Company: QyAi
 - Website: https://qyai.ru
 - Source: https://github.com/RageMind/TelegramGuard
-
-The QyAi/TelegramGuard mark in this repository is project branding, not an authentication mechanism.
 
 ## License
 
