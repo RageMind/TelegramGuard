@@ -367,18 +367,19 @@ class BotApp:
                 outcome_label = _OUTCOME_LABELS.get(outcome, outcome)
                 last_action = f"{label} · {outcome_label}"
 
+            access_line = (
+                "🟢 SSH вход: <b>Telegram approval</b>\n"
+                if approval_active
+                else (
+                    f"{'🟢' if firewall_active else '🟡'} SSH whitelist: "
+                    f"<b>{'активен' if firewall_active else 'не активен'}</b>\n"
+                )
+            )
             body = (
                 "🟢 <b>VPS на связи</b>\n"
                 f"⏱ {_safe(_uptime(int(result.get('uptime_seconds', 0))))}\n"
                 f"RAM <code>{ram}%</code>   ·   Диск <code>{disk}%</code>\n"
-                (
-                    "🟢 SSH вход: <b>Telegram approval</b>\n"
-                    if approval_active
-                    else (
-                        f"{'🟢' if firewall_active else '🟡'} SSH whitelist: "
-                        f"<b>{'активен' if firewall_active else 'не активен'}</b>\n"
-                    )
-                )
+                f"{access_line}"
                 f"🧩 Сервисов под контролем: <b>{len(units)}</b>\n"
                 f"{'🟢' if attention == 0 else '🟡'} Требует внимания: "
                 f"<b>{attention}</b>\n\n"
@@ -627,16 +628,17 @@ class BotApp:
         access_ok = approval_active or firewall_ok
         icon = "🟢" if access_ok and failed < 10 else "🟡"
 
+        access_line = (
+            "🟢 SSH second factor: <b>Telegram approval</b>\n"
+            if approval_active
+            else (
+                f"{'🟢' if firewall_ok else '🟡'} SSH whitelist: "
+                f"<b>{'активен' if firewall_ok else 'не активен'}</b>\n"
+            )
+        )
         body = (
             f"{icon} <b>Контур безопасности</b>\n\n"
-            (
-                "🟢 SSH second factor: <b>Telegram approval</b>\n"
-                if approval_active
-                else (
-                    f"{'🟢' if firewall_ok else '🟡'} SSH whitelist: "
-                    f"<b>{'активен' if firewall_ok else 'не активен'}</b>\n"
-                )
-            )
+            f"{access_line}"
             f"👥 Активных сессий: <b>{session_count}</b>\n"
             f"✓ Успешных SSH-входов за час: <b>{accepted}</b>\n"
             f"⚠ Неудачных попыток за час: <b>{failed}</b>\n"
