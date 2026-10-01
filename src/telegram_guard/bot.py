@@ -59,6 +59,21 @@ def _bar(percent: int, width: int = 10) -> str:
     return "▓" * filled + "░" * (width - filled)
 
 
+def _remaining(seconds: int | None) -> str:
+    if seconds is None:
+        return "без срока"
+    seconds = max(0, seconds)
+    if seconds >= 86400:
+        days = seconds // 86400
+        hours = (seconds % 86400) // 3600
+        return f"{days}д {hours}ч" if hours else f"{days}д"
+    if seconds >= 3600:
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        return f"{hours}ч {minutes}м" if minutes else f"{hours}ч"
+    return f"{max(1, seconds // 60)}м"
+
+
 def _screen(title: str, body: str, footer: str | None = None) -> str:
     parts = [
         "🛡 <b>TelegramGuard</b>  <code>QyAi</code>",
@@ -84,11 +99,11 @@ def _home_keyboard() -> dict[str, Any]:
             ],
             [
                 {"text": "🛡 Безопасность", "callback_data": "ui:security"},
-                {"text": "⚙️ Сервисы", "callback_data": "ui:services"},
+                {"text": "🧩 Сервисы", "callback_data": "ui:services"},
             ],
             [
-                {"text": "📜 Журнал", "callback_data": "ui:audit"},
-                {"text": "ℹ️ О системе", "callback_data": "ui:about"},
+                {"text": "📜 Активность", "callback_data": "ui:audit"},
+                {"text": "⚙️ Настройки", "callback_data": "ui:settings"},
             ],
             [{"text": "↻ Обновить", "callback_data": "ui:home"}],
         ]
@@ -141,9 +156,42 @@ def _security_keyboard() -> dict[str, Any]:
                 {"text": "👥 Сессии", "callback_data": "ui:sessions"},
             ],
             [
+                {"text": "↻ Обновить", "callback_data": "ui:security"},
                 {"text": "📜 Аудит", "callback_data": "ui:audit"},
+            ],
+            [{"text": "⌂ Главная", "callback_data": "ui:home"}],
+        ]
+    }
+
+
+def _settings_keyboard() -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [{"text": "🧪 Самопроверка", "callback_data": "ui:selftest"}],
+            [
+                {"text": "ℹ️ О системе", "callback_data": "ui:about"},
                 {"text": "⌂ Главная", "callback_data": "ui:home"},
             ],
+        ]
+    }
+
+
+def _ttl_keyboard() -> dict[str, Any]:
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "15 минут", "callback_data": "ttl:900"},
+                {"text": "1 час", "callback_data": "ttl:3600"},
+            ],
+            [
+                {"text": "8 часов", "callback_data": "ttl:28800"},
+                {"text": "1 день", "callback_data": "ttl:86400"},
+            ],
+            [
+                {"text": "7 дней", "callback_data": "ttl:604800"},
+                {"text": "Свой срок", "callback_data": "ttl:custom"},
+            ],
+            [{"text": "Отмена", "callback_data": "ui:access"}],
         ]
     }
 
@@ -195,6 +243,7 @@ class BotApp:
         self.state = StateStore(config.state_db)
         self.rate = RateLimiter(config.rate_limit_per_minute)
         self.input_modes: dict[int, str] = {}
+        self.wizard: dict[int, dict[str, Any]] = {}
 
     def _is_admin(self, user_id: int) -> bool:
         return user_id in self.config.admin_ids
@@ -274,68 +323,178 @@ class BotApp:
     async def _show_access(
         self, chat_id: int, admin_id: int, message_id: int | None = None
     ) -> None:
-        health = await self.helper.call("firewall.health")
-        result = await self.helper.call("firewall.list")
-        self.state.audit(admin_id, "firewall.list", "ok")
-        raw = str(result)
+        snapshot = await self.helper.call("firewall.snapshot")
+        self.state.audit(admin_id, "firewall.snapshot", "ok")
+        if not isinstance(snapshot, dict):
+            raise HelperError("invalid firewall snapshot")
 
-        active = (
-            isinstance(health, dict)
-            and health.get("mode") == "nft"
-            and bool(health.get("active"))
-        )
-        port = (
-            str(health.get("ssh_port"))
-            if isinstance(health, dict)
-            else "—"
-        )
-        entries = (
-            int(health.get("entries", 0))
-            if isinstance(health, dict)
-            else 0
-        )
+        active = snapshot.get("mode") == "nft" and bool(snapshot.get("active"))
+        port = int(snapshot.get("ssh_port", 0))
+        raw_entries = snapshot.get("entries", [])
+        entries = raw_entries if isinstance(raw_entries, list) else []
 
+        rows: list[list[dict[str, str]]] = []
         if active:
-            body = (
-                "🟢 <b>SSH whitelist активен</b>\n"
-                f"Порт: <code>{_safe(port)}</code>\n"
-                f"Доверенных адресов: <b>{entries}</b>\n\n"
-                "Временный доступ истекает автоматически.\n\n"
-                f"{_code(raw, 1900)}"
+            body_lines = [
+                "🟢 <b>SSH whitelist активен</b>",
+                f"Порт: <code>{port}</code>",
+                f"Доверенных адресов: <b>{len(entries)}</b>",
+                "",
+                "<b>Доступ</b>",
+            ]
+            if not entries:
+                body_lines.append("Записей пока нет.")
+            for item in entries[:12]:
+                if not isinstance(item, dict):
+                    continue
+                ip_value = str(item.get("ip", ""))
+                protected = bool(item.get("protected"))
+                remaining = item.get("remaining_seconds")
+                remaining_value = int(remaining) if isinstance(remaining, int) else None
+                state = "защищён" if protected else _remaining(remaining_value)
+                icon = "🔒" if protected else "⏱"
+                body_lines.append(
+                    f"{icon} <code>{_safe(ip_value)}</code> · {_safe(state)}"
+                )
+                rows.append(
+                    [
+                        {
+                            "text": f"{icon} {ip_value} · {state}",
+                            "callback_data": f"acl:{ip_value}",
+                        }
+                    ]
+                )
+            body = "\n".join(body_lines)
+            rows.append(
+                [{"text": "＋ Выдать доступ", "callback_data": "ui:allow"}]
             )
         else:
-            mode = (
-                str(health.get("mode", "unknown"))
-                if isinstance(health, dict)
-                else "unknown"
-            )
+            mode = str(snapshot.get("mode", "unknown"))
             body = (
                 "🟡 <b>SSH whitelist не активен</b>\n"
                 f"Режим: <code>{_safe(mode)}</code>\n"
-                f"SSH-порт: <code>{_safe(port)}</code>\n\n"
-                "На этом сервере TelegramGuard сейчас не ограничивает SSH. "
-                "После повторного запуска установщика из активной SSH-сессии "
-                "текущий IP будет закреплён и managed whitelist включится автоматически."
+                f"SSH-порт: <code>{port or '—'}</code>\n\n"
+                "TelegramGuard не ограничивает SSH в этом состоянии. "
+                "Запустите установщик повторно из активной SSH-сессии: "
+                "он закрепит текущий IP и включит managed whitelist."
             )
 
+        rows.append(
+            [
+                {"text": "↻ Обновить", "callback_data": "ui:access"},
+                {"text": "⌂ Главная", "callback_data": "ui:home"},
+            ]
+        )
         await self._show(
             chat_id,
             _screen("Доступ к VPS", body),
-            _access_keyboard(),
+            {"inline_keyboard": rows},
+            message_id,
+        )
+
+    async def _show_access_entry(
+        self,
+        chat_id: int,
+        admin_id: int,
+        ip_value: str,
+        message_id: int | None = None,
+    ) -> None:
+        address = str(parse_ip(ip_value))
+        snapshot = await self.helper.call("firewall.snapshot")
+        if not isinstance(snapshot, dict):
+            raise HelperError("invalid firewall snapshot")
+        raw_entries = snapshot.get("entries", [])
+        entries = raw_entries if isinstance(raw_entries, list) else []
+        item = next(
+            (
+                entry
+                for entry in entries
+                if isinstance(entry, dict) and str(entry.get("ip")) == address
+            ),
+            None,
+        )
+        if item is None:
+            raise ValidationError("этого адреса уже нет в whitelist")
+
+        protected = bool(item.get("protected"))
+        permanent = bool(item.get("permanent"))
+        remaining = item.get("remaining_seconds")
+        remaining_value = int(remaining) if isinstance(remaining, int) else None
+        source = str(item.get("source", "telegram"))
+        body = (
+            f"<b><code>{_safe(address)}</code></b>\n\n"
+            f"Тип: {'bootstrap / защищён' if protected else 'постоянный' if permanent else 'временный'}\n"
+            f"Осталось: <b>{_safe(_remaining(remaining_value))}</b>\n"
+            f"Источник: <code>{_safe(source)}</code>"
+        )
+
+        rows: list[list[dict[str, str]]] = []
+        if not permanent:
+            rows.append(
+                [
+                    {
+                        "text": "＋1 час",
+                        "callback_data": f"ext1:{address}",
+                    },
+                    {
+                        "text": "＋1 день",
+                        "callback_data": f"extd:{address}",
+                    },
+                ]
+            )
+        if not protected:
+            rows.append(
+                [{"text": "− Отозвать доступ", "callback_data": f"rvk:{address}"}]
+            )
+        rows.append(
+            [
+                {"text": "← Доступ", "callback_data": "ui:access"},
+                {"text": "⌂ Главная", "callback_data": "ui:home"},
+            ]
+        )
+        await self._show(
+            chat_id,
+            _screen("Запись доступа", body),
+            {"inline_keyboard": rows},
             message_id,
         )
 
     async def _show_security(
-        self, chat_id: int, message_id: int | None = None
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
     ) -> None:
-        body = (
-            "🟢 <b>Контур управления активен</b>\n\n"
-            "🔒 Команды принимаются только в личном чате\n"
-            "🧩 Privileged helper отделён от Telegram-бота\n"
-            "✅ Опасные действия подтверждаются отдельно\n"
-            "📝 Административные действия пишутся в аудит\n\n"
-            "Выберите, что проверить."
+        summary = await self.helper.call("ssh.summary", {"minutes": 60})
+        sessions = await self.helper.call("host.sessions")
+        firewall = await self.helper.call("firewall.health")
+        if not isinstance(summary, dict) or not isinstance(firewall, dict):
+            raise HelperError("invalid security status")
+
+        raw_sessions = str(sessions).strip()
+        session_count = (
+            0
+            if not raw_sessions or raw_sessions == "No interactive sessions."
+            else len([line for line in raw_sessions.splitlines() if line.strip()])
         )
+        firewall_ok = firewall.get("mode") == "nft" and bool(firewall.get("active"))
+        failed = int(summary.get("failed", 0))
+        invalid = int(summary.get("invalid_user", 0))
+        accepted = int(summary.get("accepted", 0))
+        icon = "🟢" if firewall_ok and failed < 10 else "🟡"
+
+        body = (
+            f"{icon} <b>Контур безопасности</b>\n\n"
+            f"{'🟢' if firewall_ok else '🟡'} SSH whitelist: "
+            f"<b>{'активен' if firewall_ok else 'не активен'}</b>\n"
+            f"👥 Активных сессий: <b>{session_count}</b>\n"
+            f"✓ Успешных SSH-входов за час: <b>{accepted}</b>\n"
+            f"⚠ Неудачных попыток за час: <b>{failed}</b>\n"
+            f"⚠ Invalid user за час: <b>{invalid}</b>\n\n"
+            "Команды принимаются только в личном чате, "
+            "а привилегированные действия выполняет отдельный helper."
+        )
+        self.state.audit(admin_id, "security.summary", "ok")
         await self._show(
             chat_id,
             _screen("Безопасность", body),
