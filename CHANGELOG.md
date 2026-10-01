@@ -2,6 +2,21 @@
 
 All notable TelegramGuard changes are recorded here.
 
+## [0.3.0] - 2026-10-01
+
+### Added
+
+- Paginated Telegram activity explorer.
+- Local `telegram-guard-config` utility for safe managed-service allowlist changes.
+- Non-secret configuration export.
+- Local configuration validation.
+- Rollback of managed-service config when helper restart fails.
+
+### Changed
+
+- Activity timestamps now include date and time.
+- Managed-service editing remains local-only and outside Telegram privilege boundaries.
+
 ## [0.2.0] - 2026-10-01
 
 ### Added

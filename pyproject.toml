@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qyai-telegramguard"
-version = "0.2.0"
+version = "0.3.0"
 description = "Telegram-first control plane for private VPS administration"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -44,6 +44,7 @@ Issues = "https://github.com/RageMind/TelegramGuard/issues"
 telegram-guard = "telegram_guard.bot:main"
 telegram-guard-helper = "telegram_guard.helper:main"
 telegram-guard-doctor = "telegram_guard.doctor:main"
+telegram-guard-config = "telegram_guard.config_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

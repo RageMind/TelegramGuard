@@ -73,17 +73,28 @@ class StateStore:
                 (int(time.time()), actor_id, action, outcome, payload),
             )
 
-    def recent_audit(self, limit: int = 20) -> list[dict[str, Any]]:
+    def audit_count(self) -> int:
+        with self._connect() as conn:
+            row = conn.execute("SELECT COUNT(*) AS count FROM audit").fetchone()
+        return int(row["count"]) if row is not None else 0
+
+    def audit_page(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
         limit = max(1, min(limit, 50))
+        offset = max(0, offset)
         with self._connect() as conn:
             rows = conn.execute(
                 """
                 SELECT created_at, actor_id, action, outcome, details_json
                 FROM audit
                 ORDER BY id DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (limit,),
+                (limit, offset),
             ).fetchall()
 
         result: list[dict[str, Any]] = []
@@ -98,6 +109,9 @@ class StateStore:
                 }
             )
         return result
+
+    def recent_audit(self, limit: int = 20) -> list[dict[str, Any]]:
+        return self.audit_page(limit=limit, offset=0)
 
     def create_pending(
         self,

@@ -25,7 +25,7 @@ The interface is organized like a small operating system rather than a command b
 - **Access** — managed SSH whitelist, TTL, grant/revoke/extend;
 - **Security** — whitelist health, SSH successes/failures, active sessions;
 - **Services** — allowlisted systemd units, status, logs, confirmed restart;
-- **Activity** — local administrative audit;
+- **Activity** — local administrative audit with pagination;
 - **Settings** — runtime configuration summary and self-test.
 
 Slash commands remain a fallback. Normal use starts from `/start` and the inline control panel.
@@ -116,6 +116,37 @@ Re-running the installer is designed to preserve:
 - existing managed whitelist state;
 - bootstrap entry;
 - managed service list.
+
+## Local configuration utility
+
+Managed service changes stay local to the VPS rather than being exposed as a privileged Telegram mutation.
+
+Show the current allowlist:
+
+```bash
+sudo /opt/telegram-guard/venv/bin/telegram-guard-config services
+```
+
+Replace it and safely restart the helper:
+
+```bash
+sudo /opt/telegram-guard/venv/bin/telegram-guard-config services \
+  ssh.service nginx.service
+```
+
+Validate non-secret configuration:
+
+```bash
+sudo /opt/telegram-guard/venv/bin/telegram-guard-config validate
+```
+
+Export only non-secret operational settings:
+
+```bash
+sudo /opt/telegram-guard/venv/bin/telegram-guard-config export
+```
+
+The export intentionally excludes the bot token and Telegram administrator IDs.
 
 ## Local diagnostics
 
