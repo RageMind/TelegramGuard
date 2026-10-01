@@ -421,9 +421,16 @@ class BotApp:
         remaining = item.get("remaining_seconds")
         remaining_value = int(remaining) if isinstance(remaining, int) else None
         source = str(item.get("source", "telegram"))
+        if protected:
+            entry_type = "bootstrap / защищён"
+        elif permanent:
+            entry_type = "постоянный"
+        else:
+            entry_type = "временный"
+
         body = (
             f"<b><code>{_safe(address)}</code></b>\n\n"
-            f"Тип: {'bootstrap / защищён' if protected else 'постоянный' if permanent else 'временный'}\n"
+            f"Тип: {entry_type}\n"
             f"Осталось: <b>{_safe(_remaining(remaining_value))}</b>\n"
             f"Источник: <code>{_safe(source)}</code>"
         )
@@ -657,9 +664,14 @@ class BotApp:
             raise HelperError("invalid firewall health")
         units = services if isinstance(services, list) else []
         active = firewall.get("mode") == "nft" and bool(firewall.get("active"))
+        firewall_label = (
+            "🟢 managed"
+            if active
+            else "🟡 " + _safe(firewall.get("mode", "unknown"))
+        )
         body = (
             f"<b>TelegramGuard {_safe(__version__)}</b>\n\n"
-            f"Firewall: {'🟢 managed' if active else '🟡 ' + _safe(firewall.get('mode', 'unknown'))}\n"
+            f"Firewall: {firewall_label}\n"
             f"SSH-порт: <code>{_safe(firewall.get('ssh_port', '—'))}</code>\n"
             f"Управляемых сервисов: <b>{len(units)}</b>\n"
             "Режим управления: <code>private chat only</code>\n\n"
