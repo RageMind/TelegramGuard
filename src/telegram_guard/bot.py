@@ -23,6 +23,7 @@ from telegram_guard.security import (
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
+from telegram_guard.telegram_ui import button, keyboard, screen as _screen
 
 
 def _safe(value: object) -> str:
@@ -77,126 +78,102 @@ def _remaining(seconds: int | None) -> str:
     return f"{max(1, seconds // 60)}м"
 
 
-def _screen(title: str, body: str, footer: str | None = None) -> str:
-    parts = [
-        "🛡 <b>TelegramGuard</b>  <code>QyAi</code>",
-        "━━━━━━━━━━━━━━━━",
-        f"<b>{_safe(title)}</b>",
-        body.strip(),
-    ]
-    if footer:
-        parts.extend(["", f"<i>{_safe(footer)}</i>"])
-    return "\n".join(part for part in parts if part != "")
-
-
 def _code(value: object, limit: int = 2800) -> str:
     return f"<pre>{_safe(bounded(str(value), limit))}</pre>"
 
 
 def _home_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "🖥 Система", "callback_data": "ui:status"},
-                {"text": "🔐 Доступ", "callback_data": "ui:access"},
-            ],
-            [
-                {"text": "🛡 Безопасность", "callback_data": "ui:security"},
-                {"text": "🧩 Сервисы", "callback_data": "ui:services"},
-            ],
-            [
-                {"text": "📜 Активность", "callback_data": "ui:audit"},
-                {"text": "⚙️ Настройки", "callback_data": "ui:settings"},
-            ],
-            [{"text": "↻ Обновить", "callback_data": "ui:home"}],
-        ]
-    }
+    return keyboard(
+        [
+            button("Система", "ui:status", style="primary"),
+            button("Доступ", "ui:access", style="success"),
+        ],
+        [
+            button("Безопасность", "ui:security", style="primary"),
+            button("Сервисы", "ui:services"),
+        ],
+        [
+            button("Активность", "ui:audit"),
+            button("Настройки", "ui:settings"),
+        ],
+        [button("Обновить", "ui:home")],
+    )
 
 
 def _back_keyboard(refresh: str | None = None) -> dict[str, Any]:
     row: list[dict[str, str]] = []
     if refresh:
-        row.append({"text": "↻ Обновить", "callback_data": refresh})
-    row.append({"text": "⌂ Главная", "callback_data": "ui:home"})
-    return {"inline_keyboard": [row]}
+        row.append(button("Обновить", refresh))
+    row.append(button("Control Center", "ui:home", style="primary"))
+    return keyboard(row)
 
 
 def _status_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "👥 Сессии", "callback_data": "ui:sessions"},
-                {"text": "🔎 SSH", "callback_data": "ui:ssh"},
-            ],
-            [
-                {"text": "↻ Обновить", "callback_data": "ui:status"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
-            ],
-        ]
-    }
+    return keyboard(
+        [
+            button("Сессии", "ui:sessions"),
+            button("SSH", "ui:ssh"),
+        ],
+        [
+            button("Обновить", "ui:status"),
+            button("Control Center", "ui:home", style="primary"),
+        ],
+    )
 
 
 def _access_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "＋ Разрешить IP", "callback_data": "ui:allow"},
-                {"text": "− Удалить IP", "callback_data": "ui:revoke"},
-            ],
-            [
-                {"text": "↻ Обновить", "callback_data": "ui:access"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
-            ],
-        ]
-    }
+    return keyboard(
+        [
+            button("Выдать доступ", "ui:allow", style="success"),
+            button("Отозвать", "ui:revoke", style="danger"),
+        ],
+        [
+            button("Обновить", "ui:access"),
+            button("Control Center", "ui:home", style="primary"),
+        ],
+    )
 
 
 def _security_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "🔎 SSH события", "callback_data": "ui:ssh"},
-                {"text": "👥 Сессии", "callback_data": "ui:sessions"},
-            ],
-            [
-                {"text": "↻ Обновить", "callback_data": "ui:security"},
-                {"text": "📜 Аудит", "callback_data": "ui:audit"},
-            ],
-            [{"text": "⌂ Главная", "callback_data": "ui:home"}],
-        ]
-    }
+    return keyboard(
+        [
+            button("SSH события", "ui:ssh"),
+            button("Сессии", "ui:sessions"),
+        ],
+        [
+            button("Обновить", "ui:security"),
+            button("Активность", "ui:audit"),
+        ],
+        [button("Control Center", "ui:home", style="primary")],
+    )
 
 
 def _settings_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [{"text": "🧪 Самопроверка", "callback_data": "ui:selftest"}],
-            [
-                {"text": "ℹ️ О системе", "callback_data": "ui:about"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
-            ],
-        ]
-    }
+    return keyboard(
+        [button("Запустить самопроверку", "ui:selftest", style="primary")],
+        [
+            button("О системе", "ui:about"),
+            button("Control Center", "ui:home"),
+        ],
+    )
 
 
 def _ttl_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "15 минут", "callback_data": "ttl:900"},
-                {"text": "1 час", "callback_data": "ttl:3600"},
-            ],
-            [
-                {"text": "8 часов", "callback_data": "ttl:28800"},
-                {"text": "1 день", "callback_data": "ttl:86400"},
-            ],
-            [
-                {"text": "7 дней", "callback_data": "ttl:604800"},
-                {"text": "Свой срок", "callback_data": "ttl:custom"},
-            ],
-            [{"text": "Отмена", "callback_data": "ui:access"}],
-        ]
-    }
+    return keyboard(
+        [
+            button("15 минут", "ttl:900"),
+            button("1 час", "ttl:3600", style="primary"),
+        ],
+        [
+            button("8 часов", "ttl:28800"),
+            button("1 день", "ttl:86400"),
+        ],
+        [
+            button("7 дней", "ttl:604800"),
+            button("Свой срок", "ttl:custom"),
+        ],
+        [button("Отмена", "ui:access", style="danger")],
+    )
 
 
 _ACTION_LABELS: dict[str, str] = {
