@@ -52,6 +52,8 @@ def test_enable_and_disable_are_idempotent(tmp_path: Path) -> None:
         before = controller.status()
         assert before["enabled"] is False
         assert before["ready"] is True
+        assert before["pam_writable"] is True
+        assert before["backup_dir_ready"] is True
 
         enabled = controller.enable()
         assert enabled["enabled"] is True
@@ -114,5 +116,35 @@ def test_enable_creates_root_style_backup(tmp_path: Path) -> None:
         backup = tmp_path / "backup"
         assert backup.read_text(encoding="utf-8") == original
         assert backup.stat().st_mode & 0o777 == 0o600
+    finally:
+        server.close()
+
+
+def test_status_reports_non_writable_pam(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller, server, pam_file = _controller(tmp_path)
+    assert server is not None
+    try:
+        real_open = __import__("os").open
+
+        def fake_open(
+            path: str | bytes | int,
+            flags: int,
+            mode: int = 0o777,
+            *,
+            dir_fd: int | None = None,
+        ) -> int:
+            if str(path) == str(pam_file) and flags & __import__("os").O_WRONLY:
+                raise OSError(30, "Read-only file system")
+            if dir_fd is None:
+                return real_open(path, flags, mode)
+            return real_open(path, flags, mode, dir_fd=dir_fd)
+
+        monkeypatch.setattr("os.open", fake_open)
+        status = controller.status()
+        assert status["ready"] is False
+        assert status["pam_writable"] is False
     finally:
         server.close()
