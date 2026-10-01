@@ -27,8 +27,8 @@ def keyboard(*rows: list[dict[str, str]]) -> dict[str, Any]:
 def screen(
     title: str,
     body: str,
-    *,
     footer: str | None = None,
+    *,
     eyebrow: str = "QyAi Control OS",
 ) -> str:
     content = body.strip()
