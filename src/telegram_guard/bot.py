@@ -1105,19 +1105,25 @@ class BotApp:
         )
         firewall_ok = firewall.get("mode") == "nft" and bool(firewall.get("active"))
         approval_active = bool(approval.get("enabled"))
+        approval_ready = bool(approval.get("ready"))
+        broker_active = bool(approval.get("broker_active"))
+        approval_healthy = approval_active and approval_ready and broker_active
+
         failed = int(summary.get("failed", 0))
         invalid = int(summary.get("invalid_user", 0))
         accepted = int(summary.get("accepted", 0))
-        access_ok = approval_active or firewall_ok
+        access_ok = approval_healthy or firewall_ok
         security_ok = (
             access_ok
             and failed < self.config.ssh_failed_alert_threshold
         )
 
-        if approval_active:
-            access_label = "Telegram 2FA"
+        if approval_healthy:
+            access_label = "Telegram 2FA · ON"
+        elif approval_active:
+            access_label = "Telegram 2FA · DEGRADED"
         elif firewall_ok:
-            access_label = "IP whitelist"
+            access_label = "IP whitelist · ON"
         else:
             access_label = "OFF"
 
@@ -1134,17 +1140,72 @@ class BotApp:
                 ("Window", "60m"),
             ],
             note=(
-                "Управление доступно только в личном чате. "
-                "Privileged helper отделён от Telegram-процесса."
+                "Здесь же включается и отключается Telegram 2FA. "
+                "Изменение требует отдельного подтверждения."
             ),
             columns=2,
             details_title="Модель безопасности",
+            details_text=(
+                "OpenSSH сначала проверяет пароль или ключ. "
+                "При включённой Telegram 2FA PAM затем ждёт разрешение "
+                "в Telegram. Таймаут и сбой broker работают fail-closed."
+            ),
         )
+
+        rows: list[list[dict[str, str]]] = []
+        if approval_active:
+            rows.append(
+                [
+                    button(
+                        "Отключить Telegram 2FA",
+                        "ssh2fa:disable",
+                        style="danger",
+                    )
+                ]
+            )
+        elif approval_ready:
+            rows.append(
+                [
+                    button(
+                        "Включить Telegram 2FA",
+                        "ssh2fa:enable",
+                        style="success",
+                    )
+                ]
+            )
+        else:
+            rows.append(
+                [
+                    button(
+                        "Настроить защиту",
+                        "ui:access",
+                        style="primary",
+                    )
+                ]
+            )
+
+        rows.extend(
+            [
+                [
+                    button("SSH события", "ui:ssh"),
+                    button("Сессии", "ui:sessions"),
+                ],
+                [
+                    button("Доступ", "ui:access", style="primary"),
+                    button("Активность", "ui:audit"),
+                ],
+                [
+                    button("Обновить", "ui:security"),
+                    button("Control Center", "ui:home"),
+                ],
+            ]
+        )
+
         self.state.audit(admin_id, "security.summary", "ok")
         await self._show(
             chat_id,
             view,
-            _security_keyboard(),
+            {"inline_keyboard": rows},
             message_id,
         )
 
