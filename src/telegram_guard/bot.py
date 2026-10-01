@@ -313,8 +313,12 @@ class BotApp:
     ) -> None:
         try:
             result = await self.helper.call("host.status")
-            if not isinstance(result, dict):
-                raise HelperError("invalid status response")
+            firewall = await self.helper.call("firewall.health")
+            services = await self.helper.call("service.list")
+            ssh = await self.helper.call("ssh.summary", {"minutes": 15})
+            if not isinstance(result, dict) or not isinstance(firewall, dict):
+                raise HelperError("invalid control-plane status")
+
             total = int(result.get("memory_total", 0))
             available = int(result.get("memory_available", 0))
             used = max(total - available, 0)
@@ -323,23 +327,43 @@ class BotApp:
             disk_used = max(disk_total - disk_free, 0)
             ram = _percent(used, total)
             disk = _percent(disk_used, disk_total)
-            firewall = await self.helper.call("firewall.health")
+
             firewall_active = (
-                isinstance(firewall, dict)
-                and firewall.get("mode") == "nft"
+                firewall.get("mode") == "nft"
                 and bool(firewall.get("active"))
             )
-            firewall_text = (
-                "🟢 SSH whitelist активен"
-                if firewall_active
-                else "🟡 SSH whitelist не активен"
+            units = services if isinstance(services, list) else []
+            ssh_failed = (
+                int(ssh.get("failed", 0))
+                if isinstance(ssh, dict)
+                else 0
             )
+            attention = 0
+            if not firewall_active:
+                attention += 1
+            if ssh_failed >= self.config.ssh_failed_alert_threshold:
+                attention += 1
+
+            last_rows = self.state.recent_audit(1)
+            last_action = "нет действий"
+            if last_rows:
+                last = last_rows[0]
+                action = str(last.get("action", ""))
+                outcome = str(last.get("outcome", ""))
+                label = _ACTION_LABELS.get(action, action)
+                outcome_label = _OUTCOME_LABELS.get(outcome, outcome)
+                last_action = f"{label} · {outcome_label}"
+
             body = (
                 "🟢 <b>VPS на связи</b>\n"
                 f"⏱ {_safe(_uptime(int(result.get('uptime_seconds', 0))))}\n"
                 f"RAM <code>{ram}%</code>   ·   Диск <code>{disk}%</code>\n"
-                f"{firewall_text}\n\n"
-                "Выберите раздел. Все опасные действия требуют подтверждения."
+                f"{'🟢' if firewall_active else '🟡'} SSH whitelist: "
+                f"<b>{'активен' if firewall_active else 'не активен'}</b>\n"
+                f"🧩 Сервисов под контролем: <b>{len(units)}</b>\n"
+                f"{'🟢' if attention == 0 else '🟡'} Требует внимания: "
+                f"<b>{attention}</b>\n\n"
+                f"<i>Последнее: {_safe(last_action)}</i>"
             )
         except HelperError:
             body = (
