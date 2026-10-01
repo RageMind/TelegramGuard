@@ -23,6 +23,7 @@ rm -rf /opt/telegram-guard
 if [[ "${PURGE}" -eq 1 ]]; then
   rm -rf /etc/telegram-guard
   rm -rf /var/lib/telegram-guard
+  rm -rf /var/lib/telegram-guard-helper
   userdel telegram-guard 2>/dev/null || true
   groupdel telegram-guard 2>/dev/null || true
   echo "TelegramGuard removed with local configuration/state."
