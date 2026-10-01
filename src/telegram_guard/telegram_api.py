@@ -4,8 +4,6 @@ from typing import Any
 
 import httpx
 
-from telegram_guard import BRAND
-
 
 class TelegramAPIError(RuntimeError):
     pass
@@ -16,7 +14,7 @@ class TelegramAPI:
         self._base = f"https://api.telegram.org/bot{token}"
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(40.0, connect=10.0),
-            headers={"User-Agent": "TelegramGuard/0.1 (QyAi)"},
+            headers={"User-Agent": "TelegramGuard/0.2 (QyAi)"},
         )
 
     async def close(self) -> None:
@@ -31,7 +29,12 @@ class TelegramAPI:
             raise TelegramAPIError("Telegram API request failed") from exc
 
         if not isinstance(data, dict) or not data.get("ok"):
-            raise TelegramAPIError("Telegram API rejected the request")
+            description = (
+                str(data.get("description", "Telegram API rejected the request"))
+                if isinstance(data, dict)
+                else "Telegram API rejected the request"
+            )
+            raise TelegramAPIError(description[:240])
         return data.get("result")
 
     async def get_updates(
@@ -57,11 +60,34 @@ class TelegramAPI:
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
         await self._call("sendMessage", payload)
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        try:
+            await self._call("editMessageText", payload)
+        except TelegramAPIError as exc:
+            if "message is not modified" not in str(exc).lower():
+                raise
 
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         payload: dict[str, Any] = {
@@ -71,18 +97,23 @@ class TelegramAPI:
         }
         await self._call("answerCallbackQuery", payload)
 
-    async def set_commands(self) -> None:
+    async def configure_profile(self) -> None:
         commands = [
-            {"command": "status", "description": "VPS health summary"},
-            {"command": "sessions", "description": "Active login sessions"},
-            {"command": "ssh", "description": "Recent SSH events"},
-            {"command": "allow", "description": "Temporarily whitelist an IP"},
-            {"command": "revoke", "description": "Remove an IP from whitelist"},
-            {"command": "whitelist", "description": "List whitelist entries"},
-            {"command": "services", "description": "Managed systemd services"},
-            {"command": "service", "description": "Service status"},
-            {"command": "restart", "description": "Confirmed service restart"},
-            {"command": "audit", "description": "Recent TelegramGuard audit"},
-            {"command": "help", "description": "Command reference"},
+            {"command": "start", "description": "Открыть панель управления"},
+            {"command": "status", "description": "Состояние сервера"},
+            {"command": "help", "description": "Открыть главный экран"},
         ]
         await self._call("setMyCommands", {"commands": commands})
+        await self._call(
+            "setMyShortDescription",
+            {"short_description": "VPS Control by QyAi"},
+        )
+        await self._call(
+            "setMyDescription",
+            {
+                "description": (
+                    "TelegramGuard — приватная панель управления VPS: "
+                    "состояние, доступ, SSH, сервисы и аудит."
+                )
+            },
+        )
