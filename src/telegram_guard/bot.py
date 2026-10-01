@@ -598,7 +598,10 @@ class BotApp:
         )
         keyboard = {
             "inline_keyboard": [
-                [{"text": "↻ Перезапустить", "callback_data": f"restart:{unit}"}],
+                [
+                    {"text": "📄 Логи", "callback_data": f"logs:{unit}"},
+                    {"text": "↻ Перезапустить", "callback_data": f"restart:{unit}"},
+                ],
                 [
                     {"text": "← Сервисы", "callback_data": "ui:services"},
                     {"text": "⌂ Главная", "callback_data": "ui:home"},
@@ -609,6 +612,145 @@ class BotApp:
             chat_id,
             _screen("Сервис", body),
             keyboard,
+            message_id,
+        )
+
+    async def _show_service_logs(
+        self,
+        chat_id: int,
+        admin_id: int,
+        unit: str,
+        message_id: int | None = None,
+    ) -> None:
+        unit = validate_unit(unit)
+        result = await self.helper.call("service.logs", {"unit": unit, "lines": 40})
+        self.state.audit(admin_id, "service.logs", "ok", {"unit": unit})
+        body = (
+            f"<b><code>{_safe(unit)}</code></b>\n\n"
+            f"{_code(str(result), 3000)}"
+        )
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "↻ Обновить", "callback_data": f"logs:{unit}"}],
+                [
+                    {"text": "← Сервис", "callback_data": f"svc:{unit}"},
+                    {"text": "⌂ Главная", "callback_data": "ui:home"},
+                ],
+            ]
+        }
+        await self._show(
+            chat_id,
+            _screen("Последние логи", body),
+            keyboard,
+            message_id,
+        )
+
+    async def _show_settings(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+    ) -> None:
+        firewall = await self.helper.call("firewall.health")
+        services = await self.helper.call("service.list")
+        if not isinstance(firewall, dict):
+            raise HelperError("invalid firewall health")
+        units = services if isinstance(services, list) else []
+        active = firewall.get("mode") == "nft" and bool(firewall.get("active"))
+        body = (
+            f"<b>TelegramGuard {_safe(__version__)}</b>\n\n"
+            f"Firewall: {'🟢 managed' if active else '🟡 ' + _safe(firewall.get('mode', 'unknown'))}\n"
+            f"SSH-порт: <code>{_safe(firewall.get('ssh_port', '—'))}</code>\n"
+            f"Управляемых сервисов: <b>{len(units)}</b>\n"
+            "Режим управления: <code>private chat only</code>\n\n"
+            "Изменение системных параметров выполняется только через "
+            "локальную конфигурацию VPS. В Telegram доступны безопасные операции."
+        )
+        self.state.audit(admin_id, "settings.view", "ok")
+        await self._show(
+            chat_id,
+            _screen("Настройки", body),
+            _settings_keyboard(),
+            message_id,
+        )
+
+    async def _show_self_test(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+    ) -> None:
+        checks: list[tuple[str, bool, str]] = []
+
+        try:
+            status = await self.helper.call("host.status")
+            checks.append(("Helper", isinstance(status, dict), "локальный control plane"))
+        except HelperError:
+            checks.append(("Helper", False, "нет ответа"))
+
+        try:
+            firewall = await self.helper.call("firewall.health")
+            fw_ok = (
+                isinstance(firewall, dict)
+                and firewall.get("mode") == "nft"
+                and bool(firewall.get("active"))
+            )
+            fw_detail = (
+                f"порт {firewall.get('ssh_port')}"
+                if isinstance(firewall, dict)
+                else "нет данных"
+            )
+            checks.append(("SSH whitelist", fw_ok, fw_detail))
+        except HelperError:
+            checks.append(("SSH whitelist", False, "нет данных"))
+
+        try:
+            services = await self.helper.call("service.list")
+            units = services if isinstance(services, list) else []
+            unhealthy = 0
+            for unit in units[:12]:
+                raw = await self.helper.call("service.status", {"unit": str(unit)})
+                fields = _service_fields(str(raw))
+                if fields.get("ActiveState") != "active":
+                    unhealthy += 1
+            checks.append(
+                (
+                    "Сервисы",
+                    unhealthy == 0,
+                    f"{len(units) - unhealthy}/{len(units)} active",
+                )
+            )
+        except HelperError:
+            checks.append(("Сервисы", False, "проверка не выполнена"))
+
+        ok_count = sum(1 for _, ok, _ in checks if ok)
+        lines = []
+        for name, ok, detail in checks:
+            lines.append(
+                f"{'🟢' if ok else '🔴'} <b>{_safe(name)}</b> · {_safe(detail)}"
+            )
+        body = (
+            f"<b>{ok_count}/{len(checks)} проверок успешно</b>\n\n"
+            + "\n".join(lines)
+        )
+        self.state.audit(
+            admin_id,
+            "selftest",
+            "ok" if ok_count == len(checks) else "attention",
+            {"passed": ok_count, "total": len(checks)},
+        )
+        await self._show(
+            chat_id,
+            _screen("Самопроверка", body),
+            {
+                "inline_keyboard": [
+                    [{"text": "↻ Повторить", "callback_data": "ui:selftest"}],
+                    [
+                        {"text": "← Настройки", "callback_data": "ui:settings"},
+                        {"text": "⌂ Главная", "callback_data": "ui:home"},
+                    ],
+                ]
+            },
             message_id,
         )
 
