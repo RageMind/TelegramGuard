@@ -2,6 +2,32 @@
 
 All notable TelegramGuard changes are recorded here.
 
+## [0.6.0] - 2026-10-01
+
+### Added
+
+- Live Telegram on/off control for SSH approval without restarting the bot.
+- Green enable and red disable controls with expiring confirmation.
+- Dynamic readiness checks for PAM, pam_exec and the local approval broker.
+- Compact mobile-first Control Center with two-column telemetry.
+- Read-only Network, Events, Updates and Diagnostics sysadmin screens.
+- RAM, disk, failed-unit and SSH health alerts.
+- Safe SSH approval controller with PAM backup and bounded fixed actions.
+
+### Changed
+
+- The approval broker now stays available continuously; PAM decides whether the second factor is enforced.
+- Access, Security, Settings and diagnostics read the live SSH protection state instead of a startup-only flag.
+- The installer never enables a new SSH firewall automatically.
+- Rich dashboards are denser and use expandable detail sections.
+- Package version is now 0.6.0.
+
+### Security
+
+- SSH approval enable/disable remains a fixed helper action; arbitrary shell execution is still unavailable.
+- Disabling Telegram 2FA requires an explicit expiring confirmation.
+- PAM mutations are limited to TelegramGuard's managed sshd block.
+
 ## [0.5.0] - 2026-10-01
 
 ### Added
