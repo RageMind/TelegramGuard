@@ -109,10 +109,19 @@ class NftWhitelist:
                 if expires_at <= now:
                     continue
 
-            entries[str(address)] = {
+            added_at_raw = raw_meta.get("added_at")
+            try:
+                added_at = int(added_at_raw) if added_at_raw is not None else None
+            except (TypeError, ValueError):
+                added_at = None
+
+            entry: dict[str, Any] = {
                 "expires_at": expires_at,
                 "source": str(raw_meta.get("source", "telegram"))[:32],
             }
+            if added_at is not None and added_at > 0:
+                entry["added_at"] = added_at
+            entries[str(address)] = entry
         return entries
 
     def _save_entries(self, entries: dict[str, dict[str, Any]]) -> None:
@@ -189,15 +198,24 @@ class NftWhitelist:
             "}\n"
         )
 
+    def _apply_entries(self, entries: dict[str, dict[str, Any]]) -> None:
+        existing = self._run(
+            ["list", "table", self.config.nft_family, self.config.nft_table],
+            check=False,
+        )
+        script = self._ruleset(entries)
+        if existing.returncode == 0:
+            script = (
+                f"delete table {self.config.nft_family} "
+                f"{self.config.nft_table}\n" + script
+            )
+        self._run_script(script)
+        self._save_entries(entries)
+
     def ensure(self) -> None:
         self._assert_write_mode()
         entries = self._load_entries()
-        self._run(
-            ["delete", "table", self.config.nft_family, self.config.nft_table],
-            check=False,
-        )
-        self._run_script(self._ruleset(entries))
-        self._save_entries(entries)
+        self._apply_entries(entries)
 
     def seed_permanent(self, ip_value: str, source: str = "bootstrap") -> None:
         self._assert_write_mode()
@@ -206,6 +224,7 @@ class NftWhitelist:
         entries[str(address)] = {
             "expires_at": None,
             "source": source[:32],
+            "added_at": int(time.time()),
         }
         self._run(
             ["delete", "table", self.config.nft_family, self.config.nft_table],
@@ -235,6 +254,40 @@ class NftWhitelist:
             "entries": len(entries),
         }
 
+    def snapshot(self) -> dict[str, Any]:
+        health = self.health()
+        entries = self._load_entries() if self.config.firewall_mode == "nft" else {}
+        now = int(time.time())
+        items: list[dict[str, Any]] = []
+
+        for ip_value, meta in sorted(entries.items()):
+            address = ipaddress.ip_address(ip_value)
+            expires_at_raw = meta.get("expires_at")
+            expires_at = int(expires_at_raw) if expires_at_raw is not None else None
+            remaining_seconds = (
+                max(0, expires_at - now) if expires_at is not None else None
+            )
+            source = str(meta.get("source", "telegram"))
+            items.append(
+                {
+                    "ip": str(address),
+                    "version": address.version,
+                    "source": source,
+                    "permanent": expires_at is None,
+                    "protected": source == "bootstrap",
+                    "expires_at": expires_at,
+                    "added_at": meta.get("added_at"),
+                    "remaining_seconds": remaining_seconds,
+                }
+            )
+
+        return {
+            "mode": health["mode"],
+            "active": bool(health["active"]),
+            "ssh_port": int(health["ssh_port"]),
+            "entries": items,
+        }
+
     def allow(self, ip_value: str, ttl_seconds: int) -> dict[str, str | int]:
         self._assert_write_mode()
         if not 60 <= ttl_seconds <= 7 * 86400:
@@ -242,9 +295,21 @@ class NftWhitelist:
 
         address = parse_ip(ip_value)
         entries = self._load_entries()
+        now = int(time.time())
+        previous = entries.get(str(address))
+        previous_added = (
+            previous.get("added_at")
+            if isinstance(previous, dict)
+            else None
+        )
         entries[str(address)] = {
-            "expires_at": int(time.time()) + ttl_seconds,
+            "expires_at": now + ttl_seconds,
             "source": "telegram",
+            "added_at": (
+                int(previous_added)
+                if isinstance(previous_added, int)
+                else now
+            ),
         }
 
         self._run(
@@ -260,10 +325,74 @@ class NftWhitelist:
             "set": self._set_for(address),
         }
 
+    def extend(self, ip_value: str, extra_seconds: int) -> dict[str, str | int]:
+        self._assert_write_mode()
+        if not 60 <= extra_seconds <= 7 * 86400:
+            raise ValueError("extension is outside the allowed range")
+
+        address = parse_ip(ip_value)
+        entries = self._load_entries()
+        existing = entries.get(str(address))
+        if not isinstance(existing, dict):
+            raise ValueError("whitelist entry does not exist")
+        if existing.get("expires_at") is None:
+            raise ValueError("permanent whitelist entry does not expire")
+
+        now = int(time.time())
+        current_expiry = int(existing["expires_at"])
+        new_expiry = max(now, current_expiry) + extra_seconds
+        if new_expiry - now > 7 * 86400:
+            raise ValueError("resulting TTL would exceed 7 days")
+
+        existing["expires_at"] = new_expiry
+        existing["source"] = str(existing.get("source", "telegram"))
+
+        self._run(
+            ["delete", "table", self.config.nft_family, self.config.nft_table],
+            check=False,
+        )
+        self._run_script(self._ruleset(entries))
+        self._save_entries(entries)
+
+        return {
+            "ip": str(address),
+            "remaining_seconds": new_expiry - now,
+            "set": self._set_for(address),
+        }
+
+    def make_permanent(self, ip_value: str) -> dict[str, str | bool]:
+        self._assert_write_mode()
+        address = parse_ip(ip_value)
+        entries = self._load_entries()
+        existing = entries.get(str(address))
+        if not isinstance(existing, dict):
+            raise ValueError("whitelist entry does not exist")
+        if existing.get("source") == "bootstrap":
+            return {
+                "ip": str(address),
+                "permanent": True,
+            }
+
+        existing["expires_at"] = None
+        existing["source"] = "telegram-permanent"
+        if not isinstance(existing.get("added_at"), int):
+            existing["added_at"] = int(time.time())
+
+        self._apply_entries(entries)
+        return {
+            "ip": str(address),
+            "permanent": True,
+        }
+
     def revoke(self, ip_value: str) -> dict[str, str | bool]:
         self._assert_write_mode()
         address = parse_ip(ip_value)
         entries = self._load_entries()
+        existing = entries.get(str(address))
+        if isinstance(existing, dict) and existing.get("source") == "bootstrap":
+            raise PermissionError(
+                "bootstrap address is protected; remove or rotate it locally"
+            )
         removed = entries.pop(str(address), None) is not None
 
         self._run(
@@ -280,27 +409,24 @@ class NftWhitelist:
         }
 
     def listing(self) -> str:
-        if self.config.firewall_mode != "nft":
+        snapshot = self.snapshot()
+        if snapshot["mode"] != "nft":
             return "unavailable: firewall is in observe mode"
 
-        entries = self._load_entries()
-        health = self.health()
+        entries = snapshot["entries"]
         lines = [
             "mode: managed",
-            f"status: {'active' if health['active'] else 'inactive'}",
-            f"ssh-port: {self.config.ssh_port}",
+            f"status: {'active' if snapshot['active'] else 'inactive'}",
+            f"ssh-port: {snapshot['ssh_port']}",
             f"trusted: {len(entries)}",
         ]
 
-        now = int(time.time())
-        for ip_value, meta in sorted(entries.items()):
-            expires_at = meta.get("expires_at")
-            if expires_at is None:
-                ttl = "permanent"
-            else:
-                remaining = max(0, int(expires_at) - now)
-                ttl = f"{max(1, remaining // 60)}m"
-            source = str(meta.get("source", "telegram"))
-            lines.append(f"{ip_value} · {ttl} · {source}")
+        for item in entries:
+            remaining = item["remaining_seconds"]
+            ttl = "permanent" if remaining is None else f"{max(1, int(remaining) // 60)}m"
+            marker = " · protected" if item["protected"] else ""
+            lines.append(
+                f"{item['ip']} · {ttl} · {item['source']}{marker}"
+            )
 
         return bounded("\n".join(lines), 6500)

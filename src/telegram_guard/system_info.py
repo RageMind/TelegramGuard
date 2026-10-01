@@ -87,25 +87,80 @@ class SystemController:
         result = _run([self.who], timeout=4.0, check=False)
         return bounded(result.stdout or "No interactive sessions.", 5000)
 
-    def ssh_recent(self, minutes: int) -> str:
-        minutes = max(1, min(minutes, 180))
+    def _journal_lines(
+        self,
+        unit: str,
+        *,
+        minutes: int,
+        max_lines: int = 120,
+    ) -> list[str]:
+        minutes = max(1, min(minutes, 1440))
+        max_lines = max(1, min(max_lines, 300))
         result = _run(
             [
                 self.journalctl,
                 "-u",
-                self.config.ssh_journal_unit,
+                unit,
                 "--since",
                 f"-{minutes} minutes",
                 "--no-pager",
                 "-o",
                 "short-iso",
+                "-n",
+                str(max_lines),
             ],
             timeout=8.0,
             check=False,
-            max_output=20_000,
+            max_output=30_000,
         )
-        lines = (result.stdout or "").splitlines()[-80:]
-        return bounded("\n".join(lines) or "No SSH events in the requested window.", 6500)
+        return (result.stdout or "").splitlines()[-max_lines:]
+
+    def ssh_recent(self, minutes: int) -> str:
+        lines = self._journal_lines(
+            self.config.ssh_journal_unit,
+            minutes=minutes,
+            max_lines=80,
+        )
+        return bounded(
+            "\n".join(lines) or "No SSH events in the requested window.",
+            6500,
+        )
+
+    def ssh_summary(self, minutes: int) -> dict[str, int]:
+        minutes = max(1, min(minutes, 1440))
+        lines = self._journal_lines(
+            self.config.ssh_journal_unit,
+            minutes=minutes,
+            max_lines=300,
+        )
+        failed = 0
+        accepted = 0
+        invalid_user = 0
+        disconnected = 0
+
+        for line in lines:
+            lower = line.lower()
+            if (
+                "failed password" in lower
+                or "authentication failure" in lower
+                or "failed publickey" in lower
+            ):
+                failed += 1
+            if "accepted publickey" in lower or "accepted password" in lower:
+                accepted += 1
+            if "invalid user" in lower:
+                invalid_user += 1
+            if "disconnected from" in lower or "connection closed by" in lower:
+                disconnected += 1
+
+        return {
+            "minutes": minutes,
+            "events": len(lines),
+            "failed": failed,
+            "accepted": accepted,
+            "invalid_user": invalid_user,
+            "disconnected": disconnected,
+        }
 
     def list_services(self) -> list[str]:
         return list(self.config.managed_services)
@@ -124,6 +179,27 @@ class SystemController:
             timeout=5.0,
         )
         return bounded(result.stdout, 3000)
+
+    def service_logs(self, unit: str, lines: int = 40) -> str:
+        unit = validate_unit(unit)
+        self._assert_managed(unit)
+        lines = max(5, min(lines, 120))
+        result = _run(
+            [
+                self.journalctl,
+                "-u",
+                unit,
+                "-n",
+                str(lines),
+                "--no-pager",
+                "-o",
+                "short-iso",
+            ],
+            timeout=8.0,
+            check=False,
+            max_output=14_000,
+        )
+        return bounded(result.stdout or "No recent service logs.", 6500)
 
     def restart_service(self, unit: str) -> str:
         unit = validate_unit(unit)

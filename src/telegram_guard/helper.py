@@ -97,13 +97,29 @@ class HelperServer:
             if not 1 <= minutes <= 180:
                 raise ValueError("minutes must be between 1 and 180")
             return self.system.ssh_recent(minutes)
+        if action == "ssh.summary":
+            minutes = int(args.get("minutes", 60))
+            if not 1 <= minutes <= 1440:
+                raise ValueError("minutes must be between 1 and 1440")
+            return self.system.ssh_summary(minutes)
         if action == "firewall.health":
             return self.firewall.health()
+        if action == "firewall.snapshot":
+            return self.firewall.snapshot()
         if action == "firewall.allow":
             ip_value = str(args["ip"])
             address = parse_ip(ip_value)
             ttl_seconds = int(args["ttl_seconds"])
             return self.firewall.allow(str(address), ttl_seconds)
+        if action == "firewall.extend":
+            ip_value = str(args["ip"])
+            address = parse_ip(ip_value)
+            extra_seconds = int(args["extra_seconds"])
+            return self.firewall.extend(str(address), extra_seconds)
+        if action == "firewall.make_permanent":
+            ip_value = str(args["ip"])
+            address = parse_ip(ip_value)
+            return self.firewall.make_permanent(str(address))
         if action == "firewall.revoke":
             ip_value = str(args["ip"])
             address = parse_ip(ip_value)
@@ -115,6 +131,10 @@ class HelperServer:
         if action == "service.status":
             unit = validate_unit(str(args["unit"]))
             return self.system.service_status(unit)
+        if action == "service.logs":
+            unit = validate_unit(str(args["unit"]))
+            lines = int(args.get("lines", 40))
+            return self.system.service_logs(unit, lines)
         if action == "service.restart":
             unit = validate_unit(str(args["unit"]))
             return self.system.restart_service(unit)

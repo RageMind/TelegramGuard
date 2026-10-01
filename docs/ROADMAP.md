@@ -2,7 +2,7 @@
 
 ## v0.2 — Functional Control Plane
 
-Status: current implementation target
+Status: implemented in the 0.2 release branch; release validation in progress
 
 - OS-style Telegram dashboard;
 - in-place screen editing;
@@ -25,29 +25,44 @@ Exit criteria:
 
 ## v0.3 — Complete VPS Operations UX
 
-- firewall health surfaced in UI;
-- per-entry access detail screens;
-- extend TTL;
-- revoke from selected entry;
-- human-readable audit actions;
-- service recent logs;
-- configurable managed service allowlist;
-- notification thresholds;
-- self-test page;
-- installer diagnostics;
-- safer migration from observe to managed.
+Most originally planned v0.3 items were pulled forward into v0.2:
+
+- firewall health surfaced in UI — implemented;
+- per-entry access detail screens — implemented;
+- extend TTL — implemented;
+- revoke from selected entry — implemented;
+- human-readable audit actions — implemented;
+- service recent logs — implemented;
+- notification thresholds — implemented;
+- self-test page — implemented;
+- installer diagnostics — implemented;
+- safer migration from observe to managed — implemented.
+
+Remaining v0.3 focus:
+
+- local-only managed-service allowlist editor/validator;
+- richer access-entry metadata and notes;
+- pagination for long activity history;
+- optional non-secret diagnostics export.
 
 ## v0.4 — Security & Reliability Pass
 
-- structured security events;
+Implemented early:
+
+- structured SSH security summary;
 - failed SSH attempt aggregation;
 - alert deduplication;
 - health watchdog;
-- config validation command;
+- secret-safe diagnostics command;
+- richer nftables rendering/state tests;
+- atomic managed nftables replacement.
+
+Remaining:
+
 - backup/export of non-secret configuration;
-- richer tests for nftables rendering;
-- integration tests in disposable VM/container where possible;
-- release artifacts and signed checksums.
+- disposable-VM installation/firewall integration tests;
+- tagged release artifacts and signed checksums;
+- formal upgrade/migration compatibility tests.
 
 ## v0.5 — QyAi Brand Pass
 

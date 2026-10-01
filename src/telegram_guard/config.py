@@ -71,6 +71,8 @@ class BotConfig:
     admin_ids: tuple[int, ...]
     poll_timeout: int
     rate_limit_per_minute: int
+    alert_interval_seconds: int
+    ssh_failed_alert_threshold: int
     state_db: str
     helper_socket: str
 
@@ -92,6 +94,12 @@ class BotConfig:
             admin_ids=_csv_ints("TELEGRAM_ADMIN_IDS"),
             poll_timeout=_int("TELEGRAM_POLL_TIMEOUT", 25, 5, 50),
             rate_limit_per_minute=_int("RATE_LIMIT_PER_MINUTE", 20, 5, 120),
+            alert_interval_seconds=_int(
+                "ALERT_INTERVAL_SECONDS", 60, 30, 3600
+            ),
+            ssh_failed_alert_threshold=_int(
+                "SSH_FAILED_ALERT_THRESHOLD", 10, 1, 1000
+            ),
             state_db=state_db,
             helper_socket=helper_socket,
         )
