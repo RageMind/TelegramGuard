@@ -2,6 +2,20 @@
 
 All notable TelegramGuard changes are recorded here.
 
+## [0.5.0] - 2026-10-01
+
+### Added
+
+- Bot API 10.3 Rich Message dashboards for core control screens.
+- Native headings, dividers and compact bordered tables for VPS telemetry.
+- Automatic fallback to the v0.4 HTML interface if rich rendering is rejected.
+- Regression tests for rich-message delivery and fallback behavior.
+
+### Changed
+
+- Control Center, Security and Settings now render as structured native Telegram dashboards.
+- Package version is now 0.5.0.
+
 ## [0.4.0] - 2026-10-01
 
 ### Added
