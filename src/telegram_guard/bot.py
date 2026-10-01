@@ -317,6 +317,10 @@ class BotApp:
             message = callback.get("message", {})
             chat = message.get("chat", {}) if isinstance(message, dict) else {}
             chat_id = int(chat.get("id", 0)) if isinstance(chat, dict) else 0
+            chat_type = str(chat.get("type", "")) if isinstance(chat, dict) else ""
+            if chat_type != "private":
+                await self.api.answer_callback(callback_id, "Private chat only")
+                return
             data = str(callback.get("data", ""))
 
             if data.startswith("cancel:"):
@@ -340,6 +344,9 @@ class BotApp:
         chat = message.get("chat", {})
         user_id = int(user.get("id", 0)) if isinstance(user, dict) else 0
         chat_id = int(chat.get("id", 0)) if isinstance(chat, dict) else 0
+        chat_type = str(chat.get("type", "")) if isinstance(chat, dict) else ""
+        if chat_type != "private":
+            return
         if not self._is_admin(user_id) or not chat_id:
             return
         if not self.rate.allow(user_id):
