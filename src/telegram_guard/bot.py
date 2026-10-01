@@ -23,7 +23,13 @@ from telegram_guard.security import (
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
-from telegram_guard.telegram_ui import ButtonStyle, button, keyboard
+from telegram_guard.telegram_ui import (
+    ButtonStyle,
+    TelegramView,
+    button,
+    dashboard_screen,
+    keyboard,
+)
 from telegram_guard.telegram_ui import screen as _screen
 
 
@@ -289,7 +295,7 @@ class BotApp:
     async def _show(
         self,
         chat_id: int,
-        text: str,
+        text: str | TelegramView,
         reply_markup: dict[str, Any],
         message_id: int | None = None,
     ) -> None:
@@ -317,6 +323,7 @@ class BotApp:
             disk_used = max(disk_total - disk_free, 0)
             ram = _percent(used, total)
             disk = _percent(disk_used, disk_total)
+            uptime = _uptime(int(result.get("uptime_seconds", 0)))
 
             firewall_active = (
                 firewall.get("mode") == "nft"
@@ -350,31 +357,43 @@ class BotApp:
             elif firewall_active:
                 access_label = "IP whitelist · ON"
             else:
-                access_label = "НЕ ЗАЩИЩЁН"
+                access_label = "OFF"
 
-            health = "🟢 <b>NORMAL</b>" if attention == 0 else (
-                f"🟡 <b>ATTENTION · {attention}</b>"
+            status = (
+                "🟢 VPS ONLINE · NORMAL"
+                if attention == 0
+                else f"🟡 VPS ONLINE · ATTENTION {attention}"
             )
-            body = (
-                "🟢 <b>VPS ONLINE</b>\n"
-                f"<code>UP {_safe(_uptime(int(result.get('uptime_seconds', 0))))}"
-                f"   RAM {ram}%   DISK {disk}%</code>\n\n"
-                f"<b>Доступ</b>     <code>{_safe(access_label)}</code>\n"
-                f"<b>Сервисы</b>    <code>{len(units)}</code> managed\n"
-                f"<b>SSH / 15м</b>  <code>{ssh_failed}</code> failed\n"
-                f"<b>Состояние</b>  {health}\n\n"
-                f"<i>{_safe(last_action)}</i>"
+            view = dashboard_screen(
+                "Control Center",
+                status,
+                [
+                    ("Uptime", uptime),
+                    ("RAM", f"{ram}%"),
+                    ("Disk", f"{disk}%"),
+                    ("Access", access_label),
+                    ("Services", f"{len(units)} managed"),
+                    ("SSH / 15m", f"{ssh_failed} failed"),
+                ],
+                footer=last_action,
             )
         except HelperError:
-            body = (
-                "🔴 <b>CONTROL PLANE DEGRADED</b>\n\n"
-                "Privileged helper не отвечает. Telegram-интерфейс доступен, "
-                "но системные действия временно заблокированы."
+            view = dashboard_screen(
+                "Control Center",
+                "🔴 CONTROL PLANE DEGRADED",
+                [
+                    ("Bot", "online"),
+                    ("Privileged helper", "unavailable"),
+                ],
+                note=(
+                    "Telegram-интерфейс доступен, но системные действия "
+                    "временно заблокированы."
+                ),
             )
 
         await self._show(
             chat_id,
-            _screen("Control Center", body),
+            view,
             _home_keyboard(),
             message_id,
         )
@@ -599,7 +618,10 @@ class BotApp:
         invalid = int(summary.get("invalid_user", 0))
         accepted = int(summary.get("accepted", 0))
         access_ok = approval_active or firewall_ok
-        security_ok = access_ok and failed < self.config.ssh_failed_alert_threshold
+        security_ok = (
+            access_ok
+            and failed < self.config.ssh_failed_alert_threshold
+        )
 
         if approval_active:
             access_label = "Telegram 2FA"
@@ -608,20 +630,26 @@ class BotApp:
         else:
             access_label = "OFF"
 
-        body = (
-            f"{'🟢' if security_ok else '🟡'} "
-            f"<b>{'SECURE' if security_ok else 'ATTENTION'}</b>\n"
-            f"<b>SSH protection</b>  <code>{_safe(access_label)}</code>\n"
-            f"<b>Sessions</b>        <code>{session_count}</code>\n\n"
-            "<b>Последние 60 минут</b>\n"
-            f"<code>OK {accepted}   FAIL {failed}   INVALID {invalid}</code>\n\n"
-            "Административные команды принимаются только в личном чате. "
-            "Privileged helper изолирован от Telegram-процесса."
+        status = "🟢 SECURE" if security_ok else "🟡 ATTENTION"
+        view = dashboard_screen(
+            "Security",
+            status,
+            [
+                ("SSH protection", access_label),
+                ("Active sessions", session_count),
+                ("Accepted / 60m", accepted),
+                ("Failed / 60m", failed),
+                ("Invalid users / 60m", invalid),
+            ],
+            note=(
+                "Административные команды принимаются только в личном чате. "
+                "Privileged helper изолирован от Telegram-процесса."
+            ),
         )
         self.state.audit(admin_id, "security.summary", "ok")
         await self._show(
             chat_id,
-            _screen("Security", body),
+            view,
             _security_keyboard(),
             message_id,
         )
@@ -795,20 +823,29 @@ class BotApp:
             if firewall_active
             else "off"
         )
-        body = (
-            f"<b>Version</b>      <code>{_safe(__version__)}</code>\n"
-            f"<b>Access mode</b>  <code>{_safe(access_mode)}</code>\n"
-            f"<b>SSH port</b>     <code>{_safe(firewall.get('ssh_port', '—'))}</code>\n"
-            f"<b>Services</b>     <code>{len(units)}</code> managed\n"
-            f"<b>Health check</b> <code>{self.config.alert_interval_seconds}s</code>\n"
-            f"<b>SSH alert</b>    <code>{self.config.ssh_failed_alert_threshold}+ fail</code>\n\n"
-            "Критические системные настройки изменяются локально на VPS. "
-            "В Telegram остаются только ограниченные и подтверждаемые операции."
+        view = dashboard_screen(
+            "Settings",
+            "QyAi Control OS",
+            [
+                ("Version", __version__),
+                ("Access mode", access_mode),
+                ("SSH port", firewall.get("ssh_port", "—")),
+                ("Services", f"{len(units)} managed"),
+                ("Health check", f"{self.config.alert_interval_seconds}s"),
+                (
+                    "SSH alert",
+                    f"{self.config.ssh_failed_alert_threshold}+ fail",
+                ),
+            ],
+            note=(
+                "Критические системные настройки изменяются локально на VPS. "
+                "В Telegram остаются только ограниченные и подтверждаемые операции."
+            ),
         )
         self.state.audit(admin_id, "settings.view", "ok")
         await self._show(
             chat_id,
-            _screen("Settings", body),
+            view,
             _settings_keyboard(),
             message_id,
         )
