@@ -44,6 +44,7 @@ Issues = "https://github.com/RageMind/TelegramGuard/issues"
 telegram-guard = "telegram_guard.bot:main"
 telegram-guard-helper = "telegram_guard.helper:main"
 telegram-guard-doctor = "telegram_guard.doctor:main"
+telegram-guard-config = "telegram_guard.config_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
