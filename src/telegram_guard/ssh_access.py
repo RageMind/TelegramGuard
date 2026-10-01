@@ -33,14 +33,21 @@ def _default_use_pam_probe() -> bool:
     )
     if sshd is None:
         return False
-    completed = subprocess.run(
-        [sshd, "-T"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=6,
-        env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"},
-    )
+    try:
+        completed = subprocess.run(
+            [sshd, "-T"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=6,
+            env={
+                "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+                "LANG": "C.UTF-8",
+            },
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
     return any(
         line.strip().lower() == "usepam yes"
         for line in completed.stdout.splitlines()
@@ -144,6 +151,26 @@ class SshApprovalControl:
             and PAM_COMMAND in content
         )
 
+    def _pam_writable(self) -> bool:
+        if self.pam_file.is_symlink():
+            return False
+
+        flags = os.O_WRONLY
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        try:
+            fd = os.open(self.pam_file, flags)
+        except OSError:
+            return False
+
+        try:
+            return stat.S_ISREG(os.fstat(fd).st_mode)
+        finally:
+            os.close(fd)
+
     def status(self) -> dict[str, Any]:
         try:
             content = self._read_pam()
@@ -158,13 +185,31 @@ class SshApprovalControl:
             broker_ready = stat.S_ISSOCK(self.socket_path.stat().st_mode)
         except OSError:
             broker_ready = False
+
+        pam_writable = pam_file_ok and self._pam_writable()
+        backup_dir_ready = (
+            self.backup_file.parent.is_dir()
+            and os.access(
+                self.backup_file.parent,
+                os.W_OK | os.X_OK,
+            )
+        )
         use_pam = self.use_pam_probe()
         pam_exec = self.pam_exec_probe()
-        ready = pam_file_ok and broker_ready and use_pam and pam_exec
+        ready = (
+            pam_file_ok
+            and pam_writable
+            and backup_dir_ready
+            and broker_ready
+            and use_pam
+            and pam_exec
+        )
         return {
             "enabled": pam_enabled,
             "ready": ready,
             "pam_file_ok": pam_file_ok,
+            "pam_writable": pam_writable,
+            "backup_dir_ready": backup_dir_ready,
             "broker_ready": broker_ready,
             "use_pam": use_pam,
             "pam_exec": pam_exec,
@@ -180,6 +225,10 @@ class SshApprovalControl:
             missing: list[str] = []
             if not current["pam_file_ok"]:
                 missing.append("PAM file")
+            if not current["pam_writable"]:
+                missing.append("PAM write access")
+            if not current["backup_dir_ready"]:
+                missing.append("backup directory")
             if not current["use_pam"]:
                 missing.append("UsePAM")
             if not current["pam_exec"]:
@@ -191,10 +240,16 @@ class SshApprovalControl:
             )
 
         original = self._read_pam()
-        self.backup_file.parent.mkdir(parents=True, exist_ok=True)
-        if not self.backup_file.exists():
-            shutil.copyfile(self.pam_file, self.backup_file)
-            os.chmod(self.backup_file, 0o600)
+        try:
+            self.backup_file.parent.mkdir(parents=True, exist_ok=True)
+            if not self.backup_file.exists():
+                shutil.copyfile(self.pam_file, self.backup_file)
+                os.chmod(self.backup_file, 0o600)
+        except OSError as exc:
+            detail = exc.strerror or type(exc).__name__
+            raise RuntimeError(
+                f"SSH approval backup failed: {detail}"
+            ) from exc
 
         cleaned = self._strip_managed_block(original)
         updated = cleaned
@@ -204,9 +259,21 @@ class SshApprovalControl:
 
         try:
             self._write_pam(updated)
-        except Exception:
-            self._write_pam(original)
-            raise
+        except Exception as exc:
+            try:
+                self._write_pam(original)
+            except Exception as rollback_exc:
+                raise RuntimeError(
+                    "SSH approval PAM write failed and rollback failed"
+                ) from rollback_exc
+
+            if isinstance(exc, OSError):
+                detail = exc.strerror or type(exc).__name__
+            else:
+                detail = str(exc) or type(exc).__name__
+            raise RuntimeError(
+                f"SSH approval PAM write failed: {detail}"
+            ) from exc
 
         result = self.status()
         if not result["enabled"]:
