@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
-import html
 import hashlib
+import html
+import sys
 from typing import Any
 
 from telegram_guard import BRAND, PROJECT_URL, __version__
@@ -1561,8 +1562,12 @@ class BotApp:
                 await self._watchdog_check()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                pass
+            except Exception as exc:
+                print(
+                    f"{BRAND}: watchdog check failed: {type(exc).__name__}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             await asyncio.sleep(self.config.alert_interval_seconds)
 
     async def run(self) -> None:
