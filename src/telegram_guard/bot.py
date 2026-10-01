@@ -23,6 +23,8 @@ from telegram_guard.security import (
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
+from telegram_guard.telegram_ui import ButtonStyle, button, keyboard
+from telegram_guard.telegram_ui import screen as _screen
 
 
 def _safe(value: object) -> str:
@@ -77,126 +79,102 @@ def _remaining(seconds: int | None) -> str:
     return f"{max(1, seconds // 60)}м"
 
 
-def _screen(title: str, body: str, footer: str | None = None) -> str:
-    parts = [
-        "🛡 <b>TelegramGuard</b>  <code>QyAi</code>",
-        "━━━━━━━━━━━━━━━━",
-        f"<b>{_safe(title)}</b>",
-        body.strip(),
-    ]
-    if footer:
-        parts.extend(["", f"<i>{_safe(footer)}</i>"])
-    return "\n".join(part for part in parts if part != "")
-
-
 def _code(value: object, limit: int = 2800) -> str:
     return f"<pre>{_safe(bounded(str(value), limit))}</pre>"
 
 
 def _home_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "🖥 Система", "callback_data": "ui:status"},
-                {"text": "🔐 Доступ", "callback_data": "ui:access"},
-            ],
-            [
-                {"text": "🛡 Безопасность", "callback_data": "ui:security"},
-                {"text": "🧩 Сервисы", "callback_data": "ui:services"},
-            ],
-            [
-                {"text": "📜 Активность", "callback_data": "ui:audit"},
-                {"text": "⚙️ Настройки", "callback_data": "ui:settings"},
-            ],
-            [{"text": "↻ Обновить", "callback_data": "ui:home"}],
-        ]
-    }
+    return keyboard(
+        [
+            button("Система", "ui:status", style="primary"),
+            button("Доступ", "ui:access", style="success"),
+        ],
+        [
+            button("Безопасность", "ui:security", style="primary"),
+            button("Сервисы", "ui:services"),
+        ],
+        [
+            button("Активность", "ui:audit"),
+            button("Настройки", "ui:settings"),
+        ],
+        [button("Обновить", "ui:home")],
+    )
 
 
 def _back_keyboard(refresh: str | None = None) -> dict[str, Any]:
     row: list[dict[str, str]] = []
     if refresh:
-        row.append({"text": "↻ Обновить", "callback_data": refresh})
-    row.append({"text": "⌂ Главная", "callback_data": "ui:home"})
-    return {"inline_keyboard": [row]}
+        row.append(button("Обновить", refresh))
+    row.append(button("Control Center", "ui:home", style="primary"))
+    return keyboard(row)
 
 
 def _status_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "👥 Сессии", "callback_data": "ui:sessions"},
-                {"text": "🔎 SSH", "callback_data": "ui:ssh"},
-            ],
-            [
-                {"text": "↻ Обновить", "callback_data": "ui:status"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
-            ],
-        ]
-    }
+    return keyboard(
+        [
+            button("Сессии", "ui:sessions"),
+            button("SSH", "ui:ssh"),
+        ],
+        [
+            button("Обновить", "ui:status"),
+            button("Control Center", "ui:home", style="primary"),
+        ],
+    )
 
 
 def _access_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "＋ Разрешить IP", "callback_data": "ui:allow"},
-                {"text": "− Удалить IP", "callback_data": "ui:revoke"},
-            ],
-            [
-                {"text": "↻ Обновить", "callback_data": "ui:access"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
-            ],
-        ]
-    }
+    return keyboard(
+        [
+            button("Выдать доступ", "ui:allow", style="success"),
+            button("Отозвать", "ui:revoke", style="danger"),
+        ],
+        [
+            button("Обновить", "ui:access"),
+            button("Control Center", "ui:home", style="primary"),
+        ],
+    )
 
 
 def _security_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "🔎 SSH события", "callback_data": "ui:ssh"},
-                {"text": "👥 Сессии", "callback_data": "ui:sessions"},
-            ],
-            [
-                {"text": "↻ Обновить", "callback_data": "ui:security"},
-                {"text": "📜 Аудит", "callback_data": "ui:audit"},
-            ],
-            [{"text": "⌂ Главная", "callback_data": "ui:home"}],
-        ]
-    }
+    return keyboard(
+        [
+            button("SSH события", "ui:ssh"),
+            button("Сессии", "ui:sessions"),
+        ],
+        [
+            button("Обновить", "ui:security"),
+            button("Активность", "ui:audit"),
+        ],
+        [button("Control Center", "ui:home", style="primary")],
+    )
 
 
 def _settings_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [{"text": "🧪 Самопроверка", "callback_data": "ui:selftest"}],
-            [
-                {"text": "ℹ️ О системе", "callback_data": "ui:about"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
-            ],
-        ]
-    }
+    return keyboard(
+        [button("Запустить самопроверку", "ui:selftest", style="primary")],
+        [
+            button("О системе", "ui:about"),
+            button("Control Center", "ui:home"),
+        ],
+    )
 
 
 def _ttl_keyboard() -> dict[str, Any]:
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "15 минут", "callback_data": "ttl:900"},
-                {"text": "1 час", "callback_data": "ttl:3600"},
-            ],
-            [
-                {"text": "8 часов", "callback_data": "ttl:28800"},
-                {"text": "1 день", "callback_data": "ttl:86400"},
-            ],
-            [
-                {"text": "7 дней", "callback_data": "ttl:604800"},
-                {"text": "Свой срок", "callback_data": "ttl:custom"},
-            ],
-            [{"text": "Отмена", "callback_data": "ui:access"}],
-        ]
-    }
+    return keyboard(
+        [
+            button("15 минут", "ttl:900"),
+            button("1 час", "ttl:3600", style="primary"),
+        ],
+        [
+            button("8 часов", "ttl:28800"),
+            button("1 день", "ttl:86400"),
+        ],
+        [
+            button("7 дней", "ttl:604800"),
+            button("Свой срок", "ttl:custom"),
+        ],
+        [button("Отмена", "ui:access", style="danger")],
+    )
 
 
 _ACTION_LABELS: dict[str, str] = {
@@ -358,7 +336,7 @@ class BotApp:
                 attention += 1
 
             last_rows = self.state.recent_audit(1)
-            last_action = "нет действий"
+            last_action = "Действий пока нет"
             if last_rows:
                 last = last_rows[0]
                 action = str(last.get("action", ""))
@@ -367,33 +345,36 @@ class BotApp:
                 outcome_label = _OUTCOME_LABELS.get(outcome, outcome)
                 last_action = f"{label} · {outcome_label}"
 
-            access_line = (
-                "🟢 SSH вход: <b>Telegram approval</b>\n"
-                if approval_active
-                else (
-                    f"{'🟢' if firewall_active else '🟡'} SSH whitelist: "
-                    f"<b>{'активен' if firewall_active else 'не активен'}</b>\n"
-                )
+            if approval_active:
+                access_label = "Telegram 2FA · ON"
+            elif firewall_active:
+                access_label = "IP whitelist · ON"
+            else:
+                access_label = "НЕ ЗАЩИЩЁН"
+
+            health = "🟢 <b>NORMAL</b>" if attention == 0 else (
+                f"🟡 <b>ATTENTION · {attention}</b>"
             )
             body = (
-                "🟢 <b>VPS на связи</b>\n"
-                f"⏱ {_safe(_uptime(int(result.get('uptime_seconds', 0))))}\n"
-                f"RAM <code>{ram}%</code>   ·   Диск <code>{disk}%</code>\n"
-                f"{access_line}"
-                f"🧩 Сервисов под контролем: <b>{len(units)}</b>\n"
-                f"{'🟢' if attention == 0 else '🟡'} Требует внимания: "
-                f"<b>{attention}</b>\n\n"
-                f"<i>Последнее: {_safe(last_action)}</i>"
+                "🟢 <b>VPS ONLINE</b>\n"
+                f"<code>UP {_safe(_uptime(int(result.get('uptime_seconds', 0))))}"
+                f"   RAM {ram}%   DISK {disk}%</code>\n\n"
+                f"<b>Доступ</b>     <code>{_safe(access_label)}</code>\n"
+                f"<b>Сервисы</b>    <code>{len(units)}</code> managed\n"
+                f"<b>SSH / 15м</b>  <code>{ssh_failed}</code> failed\n"
+                f"<b>Состояние</b>  {health}\n\n"
+                f"<i>{_safe(last_action)}</i>"
             )
         except HelperError:
             body = (
-                "🟠 <b>Панель доступна, helper не отвечает</b>\n\n"
-                "Откройте «Система» после восстановления локального helper."
+                "🔴 <b>CONTROL PLANE DEGRADED</b>\n\n"
+                "Privileged helper не отвечает. Telegram-интерфейс доступен, "
+                "но системные действия временно заблокированы."
             )
 
         await self._show(
             chat_id,
-            _screen("Центр управления", body, "Private control plane"),
+            _screen("Control Center", body),
             _home_keyboard(),
             message_id,
         )
@@ -418,27 +399,24 @@ class BotApp:
         if self.config.ssh_approval_enabled:
             status = self.ssh_approval.status()
             body = (
-                "🟢 <b>Telegram approval для SSH активен</b>\n\n"
-                "Сначала SSH проверяет пользователя и пароль/ключ. "
-                "Только после успешной первичной аутентификации "
-                "TelegramGuard отправляет запрос сюда.\n\n"
-                f"Ожидание подтверждения: <b>{self.config.ssh_approval_timeout}с</b>\n"
-                f"Ожидают решения сейчас: <b>{int(status['pending'])}</b>\n\n"
-                "Без нажатия «Разрешить вход» PAM отклонит сессию. "
-                "Пароль в TelegramGuard не передаётся."
+                "🟢 <b>SSH 2FA · ACTIVE</b>\n"
+                "<code>Пароль/ключ → Telegram → Shell</code>\n\n"
+                f"<b>Timeout</b>   <code>{self.config.ssh_approval_timeout}s</code>\n"
+                f"<b>Pending</b>   <code>{int(status['pending'])}</code>\n\n"
+                "После успешной проверки пароля или ключа вход всё равно "
+                "останавливается до вашего подтверждения в Telegram. "
+                "Секреты в бота не передаются."
             )
             await self._show(
                 chat_id,
                 _screen("Доступ к VPS", body),
-                {
-                    "inline_keyboard": [
-                        [
-                            {"text": "↻ Обновить", "callback_data": "ui:access"},
-                            {"text": "🛡 Безопасность", "callback_data": "ui:security"},
-                        ],
-                        [{"text": "⌂ Главная", "callback_data": "ui:home"}],
-                    ]
-                },
+                keyboard(
+                    [
+                        button("Обновить", "ui:access"),
+                        button("Безопасность", "ui:security", style="primary"),
+                    ],
+                    [button("Control Center", "ui:home")],
+                ),
                 message_id,
             )
             self.state.audit(admin_id, "firewall.snapshot", "ok")
@@ -457,11 +435,11 @@ class BotApp:
         rows: list[list[dict[str, str]]] = []
         if active:
             body_lines = [
-                "🟢 <b>SSH whitelist активен</b>",
-                f"Порт: <code>{port}</code>",
-                f"Доверенных адресов: <b>{len(entries)}</b>",
+                "🟢 <b>IP WHITELIST · ACTIVE</b>",
+                f"<b>SSH port</b>   <code>{port}</code>",
+                f"<b>Trusted</b>    <code>{len(entries)}</code>",
                 "",
-                "<b>Доступ</b>",
+                "<b>Разрешённые адреса</b>",
             ]
             if not entries:
                 body_lines.append("Записей пока нет.")
@@ -479,31 +457,31 @@ class BotApp:
                 )
                 rows.append(
                     [
-                        {
-                            "text": f"{icon} {ip_value} · {state}",
-                            "callback_data": f"acl:{ip_value}",
-                        }
+                        button(
+                            f"{icon} {ip_value} · {state}",
+                            f"acl:{ip_value}",
+                        )
                     ]
                 )
             body = "\n".join(body_lines)
             rows.append(
-                [{"text": "＋ Выдать доступ", "callback_data": "ui:allow"}]
+                [button("Выдать доступ", "ui:allow", style="success")]
             )
         else:
             mode = str(snapshot.get("mode", "unknown"))
             body = (
-                "🟡 <b>SSH whitelist не активен</b>\n"
-                f"Режим: <code>{_safe(mode)}</code>\n"
-                f"SSH-порт: <code>{port or '—'}</code>\n\n"
-                "TelegramGuard не ограничивает SSH в этом состоянии. "
-                "Запустите установщик повторно из активной SSH-сессии: "
-                "он закрепит текущий IP и включит managed whitelist."
+                "🟡 <b>SSH PROTECTION · OFF</b>\n\n"
+                f"<b>Mode</b>      <code>{_safe(mode)}</code>\n"
+                f"<b>SSH port</b>  <code>{port or '—'}</code>\n\n"
+                "Сейчас TelegramGuard не ограничивает SSH. "
+                "Включение защиты выполняется локально на VPS, чтобы "
+                "ошибка в Telegram не могла заблокировать аварийный доступ."
             )
 
         rows.append(
             [
-                {"text": "↻ Обновить", "callback_data": "ui:access"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
+                button("Обновить", "ui:access"),
+                button("Control Center", "ui:home", style="primary"),
             ]
         )
         await self._show(
@@ -567,32 +545,27 @@ class BotApp:
         if not permanent:
             rows.append(
                 [
-                    {
-                        "text": "＋1 час",
-                        "callback_data": f"ext1:{address}",
-                    },
-                    {
-                        "text": "＋1 день",
-                        "callback_data": f"extd:{address}",
-                    },
+                    button("＋1 час", f"ext1:{address}"),
+                    button("＋1 день", f"extd:{address}"),
                 ]
             )
             rows.append(
                 [
-                    {
-                        "text": "∞ Сделать постоянным",
-                        "callback_data": f"perm:{address}",
-                    }
+                    button(
+                        "Сделать постоянным",
+                        f"perm:{address}",
+                        style="primary",
+                    )
                 ]
             )
         if not protected:
             rows.append(
-                [{"text": "− Отозвать доступ", "callback_data": f"rvk:{address}"}]
+                [button("Отозвать доступ", f"rvk:{address}", style="danger")]
             )
         rows.append(
             [
-                {"text": "← Доступ", "callback_data": "ui:access"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
+                button("Назад", "ui:access"),
+                button("Control Center", "ui:home"),
             ]
         )
         await self._show(
@@ -626,30 +599,29 @@ class BotApp:
         invalid = int(summary.get("invalid_user", 0))
         accepted = int(summary.get("accepted", 0))
         access_ok = approval_active or firewall_ok
-        icon = "🟢" if access_ok and failed < 10 else "🟡"
+        security_ok = access_ok and failed < self.config.ssh_failed_alert_threshold
 
-        access_line = (
-            "🟢 SSH second factor: <b>Telegram approval</b>\n"
-            if approval_active
-            else (
-                f"{'🟢' if firewall_ok else '🟡'} SSH whitelist: "
-                f"<b>{'активен' if firewall_ok else 'не активен'}</b>\n"
-            )
-        )
+        if approval_active:
+            access_label = "Telegram 2FA"
+        elif firewall_ok:
+            access_label = "IP whitelist"
+        else:
+            access_label = "OFF"
+
         body = (
-            f"{icon} <b>Контур безопасности</b>\n\n"
-            f"{access_line}"
-            f"👥 Активных сессий: <b>{session_count}</b>\n"
-            f"✓ Успешных SSH-входов за час: <b>{accepted}</b>\n"
-            f"⚠ Неудачных попыток за час: <b>{failed}</b>\n"
-            f"⚠ Invalid user за час: <b>{invalid}</b>\n\n"
-            "Команды принимаются только в личном чате, "
-            "а привилегированные действия выполняет отдельный helper."
+            f"{'🟢' if security_ok else '🟡'} "
+            f"<b>{'SECURE' if security_ok else 'ATTENTION'}</b>\n"
+            f"<b>SSH protection</b>  <code>{_safe(access_label)}</code>\n"
+            f"<b>Sessions</b>        <code>{session_count}</code>\n\n"
+            "<b>Последние 60 минут</b>\n"
+            f"<code>OK {accepted}   FAIL {failed}   INVALID {invalid}</code>\n\n"
+            "Административные команды принимаются только в личном чате. "
+            "Privileged helper изолирован от Telegram-процесса."
         )
         self.state.audit(admin_id, "security.summary", "ok")
         await self._show(
             chat_id,
-            _screen("Безопасность", body),
+            _screen("Security", body),
             _security_keyboard(),
             message_id,
         )
@@ -701,23 +673,27 @@ class BotApp:
 
         if units:
             body = (
-                f"⚙️ <b>Под управлением: {len(units)}</b>\n\n"
-                "Нажмите сервис, чтобы увидеть его состояние."
+                "🟢 <b>SERVICE CONTROL READY</b>\n"
+                f"<b>Managed units</b>  <code>{len(units)}</code>\n\n"
+                "Выберите сервис для статуса, логов или безопасного restart."
             )
         else:
-            body = "🟡 <b>Управляемые сервисы не настроены</b>"
+            body = (
+                "🟡 <b>NO MANAGED SERVICES</b>\n\n"
+                "Allowlist сервисов настраивается локально на VPS."
+            )
 
         rows: list[list[dict[str, str]]] = []
         for unit in units[:12]:
             label = validate_unit(str(unit))
             token = _service_token(label)
             rows.append(
-                [{"text": f"⚙️ {label}", "callback_data": f"svc:{token}"}]
+                [button(label, f"svc:{token}", style="primary")]
             )
         rows.append(
             [
-                {"text": "↻ Обновить", "callback_data": "ui:services"},
-                {"text": "⌂ Главная", "callback_data": "ui:home"},
+                button("Обновить", "ui:services"),
+                button("Control Center", "ui:home"),
             ]
         )
         await self._show(
@@ -745,27 +721,25 @@ class BotApp:
         description = fields.get("Description", unit)
 
         body = (
-            f"{icon} <b>{_safe(description)}</b>\n"
-            f"Состояние: <code>{_safe(active)}</code> / <code>{_safe(sub)}</code>\n"
-            f"Unit: <code>{_safe(unit)}</code>"
+            f"{icon} <b>{_safe(description)}</b>\n\n"
+            f"<b>State</b>  <code>{_safe(active)} / {_safe(sub)}</code>\n"
+            f"<b>Unit</b>   <code>{_safe(unit)}</code>"
         )
         token = _service_token(unit)
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {"text": "📄 Логи", "callback_data": f"logs:{token}"},
-                    {"text": "↻ Перезапустить", "callback_data": f"restart:{token}"},
-                ],
-                [
-                    {"text": "← Сервисы", "callback_data": "ui:services"},
-                    {"text": "⌂ Главная", "callback_data": "ui:home"},
-                ],
-            ]
-        }
+        keyboard_markup = keyboard(
+            [
+                button("Логи", f"logs:{token}", style="primary"),
+                button("Restart", f"restart:{token}", style="danger"),
+            ],
+            [
+                button("Назад", "ui:services"),
+                button("Control Center", "ui:home"),
+            ],
+        )
         await self._show(
             chat_id,
             _screen("Сервис", body),
-            keyboard,
+            keyboard_markup,
             message_id,
         )
 
@@ -784,19 +758,17 @@ class BotApp:
             f"{_code(str(result), 3000)}"
         )
         token = _service_token(unit)
-        keyboard = {
-            "inline_keyboard": [
-                [{"text": "↻ Обновить", "callback_data": f"logs:{token}"}],
-                [
-                    {"text": "← Сервис", "callback_data": f"svc:{token}"},
-                    {"text": "⌂ Главная", "callback_data": "ui:home"},
-                ],
-            ]
-        }
+        keyboard_markup = keyboard(
+            [button("Обновить", f"logs:{token}")],
+            [
+                button("Назад к сервису", f"svc:{token}"),
+                button("Control Center", "ui:home"),
+            ],
+        )
         await self._show(
             chat_id,
             _screen("Последние логи", body),
-            keyboard,
+            keyboard_markup,
             message_id,
         )
 
@@ -810,34 +782,33 @@ class BotApp:
         services = await self.helper.call("service.list")
         if not isinstance(firewall, dict):
             raise HelperError("invalid firewall health")
+
         units = services if isinstance(services, list) else []
-        active = firewall.get("mode") == "nft" and bool(firewall.get("active"))
-        firewall_label = (
-            "🟢 managed"
-            if active
-            else "🟡 " + _safe(firewall.get("mode", "unknown"))
+        firewall_active = (
+            firewall.get("mode") == "nft"
+            and bool(firewall.get("active"))
         )
-        approval_label = (
-            "SSH Telegram approval: <b>включён</b>\n"
+        access_mode = (
+            "Telegram 2FA"
             if self.config.ssh_approval_enabled
-            else "SSH Telegram approval: <b>выключен</b>\n"
+            else "IP whitelist"
+            if firewall_active
+            else "off"
         )
         body = (
-            f"<b>TelegramGuard {_safe(__version__)}</b>\n\n"
-            f"Firewall: {firewall_label}\n"
-            f"SSH-порт: <code>{_safe(firewall.get('ssh_port', '—'))}</code>\n"
-            f"Управляемых сервисов: <b>{len(units)}</b>\n"
-            f"Проверка здоровья: <b>{self.config.alert_interval_seconds}с</b>\n"
-            f"SSH alert: <b>{self.config.ssh_failed_alert_threshold}+ ошибок</b>\n"
-            f"{approval_label}"
-            "Режим управления: <code>private chat only</code>\n\n"
-            "Изменение системных параметров выполняется только через "
-            "локальную конфигурацию VPS. В Telegram доступны безопасные операции."
+            f"<b>Version</b>      <code>{_safe(__version__)}</code>\n"
+            f"<b>Access mode</b>  <code>{_safe(access_mode)}</code>\n"
+            f"<b>SSH port</b>     <code>{_safe(firewall.get('ssh_port', '—'))}</code>\n"
+            f"<b>Services</b>     <code>{len(units)}</code> managed\n"
+            f"<b>Health check</b> <code>{self.config.alert_interval_seconds}s</code>\n"
+            f"<b>SSH alert</b>    <code>{self.config.ssh_failed_alert_threshold}+ fail</code>\n\n"
+            "Критические системные настройки изменяются локально на VPS. "
+            "В Telegram остаются только ограниченные и подтверждаемые операции."
         )
         self.state.audit(admin_id, "settings.view", "ok")
         await self._show(
             chat_id,
-            _screen("Настройки", body),
+            _screen("Settings", body),
             _settings_keyboard(),
             message_id,
         )
@@ -1103,24 +1074,29 @@ class BotApp:
         message_id: int | None = None,
     ) -> None:
         token = self.state.create_pending(admin_id, action, args)
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {"text": "✓ Подтвердить", "callback_data": f"confirm:{token}"},
-                    {"text": "Отмена", "callback_data": f"cancel:{token}"},
-                ]
+        positive_style: ButtonStyle = (
+            "success" if action == "firewall.allow" else "danger"
+        )
+        keyboard_markup = keyboard(
+            [
+                button(
+                    "Подтвердить",
+                    f"confirm:{token}",
+                    style=positive_style,
+                ),
+                button("Отмена", f"cancel:{token}"),
             ]
-        }
+        )
         self.state.audit(admin_id, action, "pending", args)
         body = (
-            "⚠️ <b>Требуется подтверждение</b>\n\n"
+            "🟡 <b>CONFIRM ACTION</b>\n\n"
             f"{_safe(description)}\n\n"
-            "Действие действительно 90 секунд."
+            "<code>TTL 90s</code> · после истечения запрос будет отклонён."
         )
         await self._show(
             chat_id,
-            _screen("Подтверждение", body),
-            keyboard,
+            _screen("Confirmation", body),
+            keyboard_markup,
             message_id,
         )
 
@@ -1634,8 +1610,19 @@ class BotApp:
                 await self.api.answer_callback(callback_id, "Только личный чат")
                 return
 
-            await self.api.answer_callback(callback_id)
             data = str(callback.get("data", ""))
+            feedback = ""
+            if data in {
+                "ui:home",
+                "ui:status",
+                "ui:access",
+                "ui:security",
+                "ui:services",
+            } or data.startswith(("logs:", "audit:")):
+                feedback = "Обновляю…"
+            elif data.startswith(("confirm:", "ssha:", "sshd:")):
+                feedback = "Выполняю…"
+            await self.api.answer_callback(callback_id, feedback)
             try:
                 await self._handle_callback(chat_id, message_id, user_id, data)
             except (ValidationError, HelperError) as exc:
@@ -1729,35 +1716,34 @@ class BotApp:
             {"ip": request.remote_ip, "user": request.user},
         )
         body = (
-            "🔐 <b>Успешная SSH-аутентификация</b>\n\n"
-            f"Пользователь: <code>{_safe(request.user)}</code>\n"
-            f"IP: <code>{_safe(request.remote_ip)}</code>\n"
-            f"TTY: <code>{_safe(request.tty)}</code>\n\n"
-            "Пароль/ключ уже проверен системой. "
-            "Доступ ещё <b>НЕ выдан</b>.\n\n"
-            f"Запрос истечёт через <b>{self.config.ssh_approval_timeout}с</b>."
+            "🟡 <b>SSH SIGN-IN WAITING</b>\n"
+            "Первичная аутентификация уже успешна. Shell ещё не открыт.\n\n"
+            f"<b>User</b>  <code>{_safe(request.user)}</code>\n"
+            f"<b>IP</b>    <code>{_safe(request.remote_ip)}</code>\n"
+            f"<b>TTY</b>   <code>{_safe(request.tty)}</code>\n"
+            f"<b>TTL</b>   <code>{self.config.ssh_approval_timeout}s</code>"
         )
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {
-                        "text": "✅ Разрешить вход",
-                        "callback_data": f"ssha:{token}",
-                    },
-                    {
-                        "text": "⛔ Отклонить",
-                        "callback_data": f"sshd:{token}",
-                    },
-                ]
+        keyboard_markup = keyboard(
+            [
+                button(
+                    "Разрешить вход",
+                    f"ssha:{token}",
+                    style="success",
+                ),
+                button(
+                    "Отклонить",
+                    f"sshd:{token}",
+                    style="danger",
+                ),
             ]
-        }
+        )
         delivered = 0
         for admin_id in self.config.admin_ids:
             try:
                 await self.api.send_message(
                     admin_id,
-                    _screen("Подтверждение SSH-входа", body, "QyAi Access Gate"),
-                    keyboard,
+                    _screen("SSH Access Gate", body),
+                    keyboard_markup,
                 )
                 delivered += 1
             except TelegramAPIError:

@@ -4,6 +4,8 @@ from typing import Any
 
 import httpx
 
+from telegram_guard import __version__
+
 
 class TelegramAPIError(RuntimeError):
     pass
@@ -14,7 +16,7 @@ class TelegramAPI:
         self._base = f"https://api.telegram.org/bot{token}"
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(40.0, connect=10.0),
-            headers={"User-Agent": "TelegramGuard/0.2 (QyAi)"},
+            headers={"User-Agent": f"TelegramGuard/{__version__} (QyAi)"},
         )
 
     async def close(self) -> None:
@@ -89,31 +91,48 @@ class TelegramAPI:
             if "message is not modified" not in str(exc).lower():
                 raise
 
-    async def answer_callback(self, callback_id: str, text: str = "") -> None:
+    async def answer_callback(
+        self,
+        callback_id: str,
+        text: str = "",
+        *,
+        show_alert: bool = False,
+    ) -> None:
         payload: dict[str, Any] = {
             "callback_query_id": callback_id,
             "text": text[:180],
-            "show_alert": False,
+            "show_alert": show_alert,
         }
         await self._call("answerCallbackQuery", payload)
 
     async def configure_profile(self) -> None:
         commands = [
-            {"command": "start", "description": "Открыть панель управления"},
-            {"command": "status", "description": "Состояние сервера"},
-            {"command": "help", "description": "Открыть главный экран"},
+            {"command": "start", "description": "Открыть Control Center"},
+            {"command": "status", "description": "Состояние VPS"},
+            {"command": "security", "description": "Безопасность и SSH"},
+            {"command": "settings", "description": "Настройки TelegramGuard"},
+            {"command": "help", "description": "Открыть панель"},
         ]
         await self._call("setMyCommands", {"commands": commands})
         await self._call(
+            "setChatMenuButton",
+            {"menu_button": {"type": "commands"}},
+        )
+        await self._call(
+            "setMyName",
+            {"name": "TelegramGuard"},
+        )
+        await self._call(
             "setMyShortDescription",
-            {"short_description": "VPS Control by QyAi"},
+            {"short_description": "QyAi VPS Control OS"},
         )
         await self._call(
             "setMyDescription",
             {
                 "description": (
-                    "TelegramGuard — приватная панель управления VPS: "
-                    "состояние, доступ, SSH, сервисы и аудит."
+                    "TelegramGuard by QyAi — приватный Control OS для VPS. "
+                    "Состояние сервера, SSH-защита, доступы, сервисы, "
+                    "уведомления и аудит в одном интерфейсе."
                 )
             },
         )

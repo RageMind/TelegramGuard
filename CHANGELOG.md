@@ -2,6 +2,25 @@
 
 All notable TelegramGuard changes are recorded here.
 
+## [0.4.0] - 2026-10-01
+
+### Added
+
+- QyAi Control OS v2 visual system for Telegram.
+- Native Bot API 9.4 styled inline buttons.
+- Consistent primary, success and danger action semantics.
+- Cleaner Control Center, Security, Access, Services and Settings screens.
+- Polished SSH approval card with explicit allow/deny styling.
+- Native bot profile, command menu and menu-button configuration.
+- UI regression tests for screen and button primitives.
+
+### Changed
+
+- Removed decorative ASCII separator bars and reduced emoji noise.
+- Reworked status copy into compact operational summaries.
+- Navigation stays inside editable inline-keyboard screens.
+- Package version is now 0.4.0.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added
