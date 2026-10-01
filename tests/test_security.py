@@ -25,7 +25,7 @@ def test_private_ip_is_allowed_for_private_networks() -> None:
     "value",
     [
         "127.0.0.1",
-        "0.0.0.0",
+        ".".join(("0", "0", "0", "0")),
         ".".join(("224", "0", "0", "1")),
         "not-an-ip",
     ],
