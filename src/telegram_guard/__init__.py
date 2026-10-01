@@ -4,6 +4,6 @@ from __future__ import annotations
 
 __all__ = ["__version__", "BRAND", "PROJECT_URL"]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 BRAND = "QyAi • TelegramGuard"
 PROJECT_URL = "https://qyai.ru"
