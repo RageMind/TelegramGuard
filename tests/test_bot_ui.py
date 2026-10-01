@@ -18,3 +18,8 @@ def test_audit_labels_cover_sensitive_mutations() -> None:
     assert _ACTION_LABELS["firewall.make_permanent"] == "Доступ сделан постоянным"
     assert _ACTION_LABELS["firewall.revoke"] == "Доступ отозван"
     assert _ACTION_LABELS["service.restart"] == "Сервис перезапущен"
+
+
+def test_audit_labels_cover_ssh_approval_toggle() -> None:
+    assert _ACTION_LABELS["ssh.approval.enable"] == "SSH 2FA включён"
+    assert _ACTION_LABELS["ssh.approval.disable"] == "SSH 2FA отключён"
