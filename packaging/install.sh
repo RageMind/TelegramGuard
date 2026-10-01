@@ -167,7 +167,7 @@ if [[ "${BOT_READY}" -eq 1 ]]; then
 fi
 
 echo
-VERSION="$("${INSTALL_ROOT}/venv/bin/python" -c 'from telegram_guard import __version__; print(__version__)' 2>/dev/null || echo unknown)"
+VERSION=$("${INSTALL_ROOT}/venv/bin/python" -c 'from telegram_guard import __version__; print(__version__)' 2>/dev/null || printf 'unknown')
 echo "TelegramGuard ${VERSION} installed."
 if [[ "${BOT_READY}" -eq 1 ]]; then
   echo "Bot: RUNNING"
