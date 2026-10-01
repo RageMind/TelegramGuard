@@ -817,6 +817,11 @@ class BotApp:
             if active
             else "🟡 " + _safe(firewall.get("mode", "unknown"))
         )
+        approval_label = (
+            "SSH Telegram approval: <b>включён</b>\n"
+            if self.config.ssh_approval_enabled
+            else "SSH Telegram approval: <b>выключен</b>\n"
+        )
         body = (
             f"<b>TelegramGuard {_safe(__version__)}</b>\n\n"
             f"Firewall: {firewall_label}\n"
@@ -824,11 +829,7 @@ class BotApp:
             f"Управляемых сервисов: <b>{len(units)}</b>\n"
             f"Проверка здоровья: <b>{self.config.alert_interval_seconds}с</b>\n"
             f"SSH alert: <b>{self.config.ssh_failed_alert_threshold}+ ошибок</b>\n"
-            (
-                "SSH Telegram approval: <b>включён</b>\n"
-                if self.config.ssh_approval_enabled
-                else "SSH Telegram approval: <b>выключен</b>\n"
-            )
+            f"{approval_label}"
             "Режим управления: <code>private chat only</code>\n\n"
             "Изменение системных параметров выполняется только через "
             "локальную конфигурацию VPS. В Telegram доступны безопасные операции."
