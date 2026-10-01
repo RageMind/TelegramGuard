@@ -19,6 +19,12 @@ All notable TelegramGuard changes are recorded here.
 - Emergency local firewall rollback command.
 - Secret-safe `telegram-guard-doctor` diagnostics.
 - Firewall and SSH summary regression tests.
+- Deduplicated health watchdog with recovery notifications.
+- Configurable failed-SSH and health-check alert thresholds.
+- Human-readable activity labels and targets.
+- Stable short callback tokens for long systemd unit names.
+- Atomic nftables table replacement transactions.
+- Live attention, service-count and last-action summary on Control Center.
 - Product, UX, install-flow and roadmap specifications.
 
 ### Changed
