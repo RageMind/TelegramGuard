@@ -815,21 +815,29 @@ class BotApp:
         message_id: int | None = None,
     ) -> None:
         self.input_modes[admin_id] = mode
-        if mode == "allow":
+        if mode == "allow_ip":
             body = (
-                "Отправьте IP и, при желании, срок доступа.\n\n"
+                "Отправьте IP, которому нужен доступ к SSH.\n\n"
                 "<b>Пример</b>\n"
-                "<code>203.0.113.42 1h</code>\n\n"
-                "Срок по умолчанию: <b>1 час</b>. Максимум: <b>7 дней</b>."
+                "<code>203.0.113.42</code>\n\n"
+                "После этого TelegramGuard предложит срок доступа."
             )
-            title = "Разрешить IP"
+            title = "Новый доступ · 1/2"
+        elif mode == "allow_ttl":
+            body = (
+                "Отправьте срок в формате <code>15m</code>, "
+                "<code>2h</code> или <code>3d</code>.\n\n"
+                "Минимум: <b>1 минута</b>\n"
+                "Максимум: <b>7 дней</b>"
+            )
+            title = "Новый доступ · 2/2"
         else:
             body = (
                 "Отправьте IP, который нужно убрать из whitelist.\n\n"
                 "<b>Пример</b>\n"
                 "<code>203.0.113.42</code>"
             )
-            title = "Удалить IP"
+            title = "Отозвать доступ"
         keyboard = {
             "inline_keyboard": [
                 [{"text": "Отмена", "callback_data": "ui:access"}]
@@ -839,6 +847,25 @@ class BotApp:
             chat_id,
             _screen(title, body, "Следующее сообщение будет обработано как ввод"),
             keyboard,
+            message_id,
+        )
+
+    async def _show_ttl_choice(
+        self,
+        chat_id: int,
+        admin_id: int,
+        address: str,
+        message_id: int | None = None,
+    ) -> None:
+        self.wizard[admin_id] = {"ip": address}
+        body = (
+            f"IP: <code>{_safe(address)}</code>\n\n"
+            "Выберите, как долго этот адрес сможет подключаться к SSH."
+        )
+        await self._show(
+            chat_id,
+            _screen("Новый доступ · 2/2", body),
+            _ttl_keyboard(),
             message_id,
         )
 
@@ -904,6 +931,28 @@ class BotApp:
                 f"Срок: <b>{_safe(format_ttl(int(args['ttl_seconds'])))}</b>"
             )
             keyboard = _access_keyboard()
+        elif action == "firewall.extend":
+            remaining = (
+                int(result.get("remaining_seconds", 0))
+                if isinstance(result, dict)
+                else 0
+            )
+            body = (
+                "🟢 <b>Доступ продлён</b>\n"
+                f"IP: <code>{_safe(args['ip'])}</code>\n"
+                f"Теперь осталось: <b>{_safe(_remaining(remaining))}</b>"
+            )
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Открыть запись",
+                            "callback_data": f"acl:{args['ip']}",
+                        }
+                    ],
+                    [{"text": "⌂ Главная", "callback_data": "ui:home"}],
+                ]
+            }
         elif action == "firewall.revoke":
             removed = bool(result.get("removed")) if isinstance(result, dict) else False
             state = "удалён" if removed else "уже отсутствовал"
@@ -949,13 +998,15 @@ class BotApp:
         self.input_modes.pop(admin_id, None)
 
         if data == "ui:home":
+            self.wizard.pop(admin_id, None)
             await self._show_home(chat_id, message_id)
         elif data == "ui:status":
             await self._show_status(chat_id, admin_id, message_id)
         elif data == "ui:access":
+            self.wizard.pop(admin_id, None)
             await self._show_access(chat_id, admin_id, message_id)
         elif data == "ui:security":
-            await self._show_security(chat_id, message_id)
+            await self._show_security(chat_id, admin_id, message_id)
         elif data == "ui:sessions":
             await self._show_sessions(chat_id, admin_id, message_id)
         elif data == "ui:ssh":
@@ -964,14 +1015,78 @@ class BotApp:
             await self._show_services(chat_id, admin_id, message_id)
         elif data == "ui:audit":
             await self._show_audit(chat_id, message_id)
+        elif data == "ui:settings":
+            await self._show_settings(chat_id, admin_id, message_id)
+        elif data == "ui:selftest":
+            await self._show_self_test(chat_id, admin_id, message_id)
         elif data == "ui:about":
             await self._show_about(chat_id, message_id)
         elif data == "ui:allow":
-            await self._show_input(chat_id, admin_id, "allow", message_id)
+            self.wizard.pop(admin_id, None)
+            await self._show_input(chat_id, admin_id, "allow_ip", message_id)
         elif data == "ui:revoke":
             await self._show_input(chat_id, admin_id, "revoke", message_id)
+        elif data.startswith("acl:"):
+            await self._show_access_entry(
+                chat_id, admin_id, data.split(":", 1)[1], message_id
+            )
+        elif data.startswith("ext1:"):
+            address = str(parse_ip(data.split(":", 1)[1]))
+            await self._confirmed_request(
+                chat_id,
+                admin_id,
+                "firewall.extend",
+                {"ip": address, "extra_seconds": 3600},
+                f"Продлить доступ для {address} ещё на 1 час?",
+                message_id,
+            )
+        elif data.startswith("extd:"):
+            address = str(parse_ip(data.split(":", 1)[1]))
+            await self._confirmed_request(
+                chat_id,
+                admin_id,
+                "firewall.extend",
+                {"ip": address, "extra_seconds": 86400},
+                f"Продлить доступ для {address} ещё на 1 день?",
+                message_id,
+            )
+        elif data.startswith("rvk:"):
+            address = str(parse_ip(data.split(":", 1)[1]))
+            await self._confirmed_request(
+                chat_id,
+                admin_id,
+                "firewall.revoke",
+                {"ip": address},
+                f"Отозвать SSH-доступ у {address}?",
+                message_id,
+            )
+        elif data.startswith("ttl:"):
+            raw_ttl = data.split(":", 1)[1]
+            wizard = self.wizard.get(admin_id)
+            if not isinstance(wizard, dict) or "ip" not in wizard:
+                raise ValidationError("мастер доступа устарел; начните заново")
+            address = str(wizard["ip"])
+            if raw_ttl == "custom":
+                await self._show_input(
+                    chat_id, admin_id, "allow_ttl", message_id
+                )
+            else:
+                ttl = int(raw_ttl)
+                self.wizard.pop(admin_id, None)
+                await self._confirmed_request(
+                    chat_id,
+                    admin_id,
+                    "firewall.allow",
+                    {"ip": address, "ttl_seconds": ttl},
+                    f"Разрешить {address} на {format_ttl(ttl)}?",
+                    message_id,
+                )
         elif data.startswith("svc:"):
             await self._show_service(chat_id, admin_id, data[4:], message_id)
+        elif data.startswith("logs:"):
+            await self._show_service_logs(
+                chat_id, admin_id, data.split(":", 1)[1], message_id
+            )
         elif data.startswith("restart:"):
             unit = validate_unit(data.split(":", 1)[1])
             managed = await self.helper.call("service.list")
@@ -992,6 +1107,7 @@ class BotApp:
             token = data.split(":", 1)[1]
             self.state.consume_pending(token, admin_id)
             self.state.audit(admin_id, "confirmation", "cancelled")
+            self.wizard.pop(admin_id, None)
             await self._show_home(chat_id, message_id)
 
     async def _handle_text_input(
@@ -1002,18 +1118,28 @@ class BotApp:
             return False
 
         try:
-            if mode == "allow":
+            if mode == "allow_ip":
                 parts = text.split()
-                if not 1 <= len(parts) <= 2:
-                    raise ValidationError("нужно: IP и необязательно TTL")
-                address = parse_ip(parts[0])
-                ttl = parse_ttl(parts[1] if len(parts) == 2 else "1h")
+                if len(parts) != 1:
+                    raise ValidationError("отправьте только один IP")
+                address = str(parse_ip(parts[0]))
                 self.input_modes.pop(admin_id, None)
+                await self._show_ttl_choice(chat_id, admin_id, address)
+                return True
+
+            if mode == "allow_ttl":
+                ttl = parse_ttl(text.strip())
+                wizard = self.wizard.get(admin_id)
+                if not isinstance(wizard, dict) or "ip" not in wizard:
+                    raise ValidationError("мастер доступа устарел; начните заново")
+                address = str(wizard["ip"])
+                self.input_modes.pop(admin_id, None)
+                self.wizard.pop(admin_id, None)
                 await self._confirmed_request(
                     chat_id,
                     admin_id,
                     "firewall.allow",
-                    {"ip": str(address), "ttl_seconds": ttl},
+                    {"ip": address, "ttl_seconds": ttl},
                     f"Разрешить {address} на {format_ttl(ttl)}?",
                 )
                 return True
@@ -1072,7 +1198,7 @@ class BotApp:
             return
         if command == "/allow":
             if not args:
-                await self._show_input(chat_id, admin_id, "allow")
+                await self._show_input(chat_id, admin_id, "allow_ip")
                 return
             address = parse_ip(args[0])
             ttl = parse_ttl(args[1] if len(args) > 1 else "1h")
@@ -1124,6 +1250,12 @@ class BotApp:
             return
         if command == "/audit":
             await self._show_audit(chat_id)
+            return
+        if command in {"/settings", "/doctor"}:
+            if command == "/doctor":
+                await self._show_self_test(chat_id, admin_id)
+            else:
+                await self._show_settings(chat_id, admin_id)
             return
         if command == "/version":
             await self._show_about(chat_id)
