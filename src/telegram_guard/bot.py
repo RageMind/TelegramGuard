@@ -85,6 +85,19 @@ def _remaining(seconds: int | None) -> str:
     return f"{max(1, seconds // 60)}м"
 
 
+def _approval_missing(approval: dict[str, Any]) -> list[str]:
+    checks = (
+        ("pam_file_ok", "PAM-файл"),
+        ("pam_writable", "запись PAM"),
+        ("backup_dir_ready", "каталог backup"),
+        ("broker_ready", "approval broker"),
+        ("broker_active", "broker process"),
+        ("use_pam", "UsePAM"),
+        ("pam_exec", "pam_exec"),
+    )
+    return [label for key, label in checks if not bool(approval.get(key))]
+
+
 def _code(value: object, limit: int = 2800) -> str:
     return f"<pre>{_safe(bounded(str(value), limit))}</pre>"
 
@@ -761,9 +774,25 @@ class BotApp:
 
         failed_raw = health.get("failed_units", [])
         failed_list = failed_raw if isinstance(failed_raw, list) else []
-        details = "\n".join(str(x) for x in failed_list)
-        if not details:
-            details = "Критических failed units нет."
+        detail_lines: list[str] = []
+        if failed_list:
+            detail_lines.append(
+                "Failed units: " + ", ".join(str(x) for x in failed_list)
+            )
+        else:
+            detail_lines.append("Failed units: нет")
+
+        if approval_active:
+            detail_lines.append("SSH 2FA: включён")
+        elif bool(approval.get("ready")):
+            detail_lines.append("SSH 2FA: готов к включению")
+        else:
+            missing = _approval_missing(approval)
+            detail_lines.append(
+                "SSH 2FA не готов: "
+                + (", ".join(missing) if missing else "неизвестная причина")
+            )
+        details = "\n".join(detail_lines)
 
         view = dashboard_screen(
             "Диагностика",
@@ -783,7 +812,7 @@ class BotApp:
                 "Все проверки read-only; изменяющие действия остаются "
                 "отдельными и подтверждаемыми."
             ),
-            details_title="Проблемные units",
+            details_title="Что требует внимания",
             details_text=details,
         )
         self.state.audit(
@@ -843,10 +872,12 @@ class BotApp:
                 "включении не закрывается."
             )
         else:
+            missing = _approval_missing(approval)
             status = "🔴 2FA NOT READY"
             note = (
-                "Перед включением нужны рабочие PAM, pam_exec и локальный "
-                "approval broker."
+                "Не готово: "
+                + (", ".join(missing) if missing else "неизвестная причина")
+                + "."
             )
 
         rows: list[tuple[str, object]] = [
@@ -1900,8 +1931,10 @@ class BotApp:
             if bool(approval.get("enabled")):
                 await self._show_access(chat_id, admin_id, message_id)
             elif not bool(approval.get("ready")):
+                missing = _approval_missing(approval)
                 raise ValidationError(
-                    "SSH approval ещё не готов; откройте диагностику"
+                    "SSH 2FA не готов: "
+                    + (", ".join(missing) if missing else "неизвестная причина")
                 )
             else:
                 await self._confirmed_request(
