@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import datetime as dt
 import html
+import hashlib
 from typing import Any
 
 from telegram_guard import BRAND, PROJECT_URL, __version__
@@ -196,6 +197,51 @@ def _ttl_keyboard() -> dict[str, Any]:
     }
 
 
+_ACTION_LABELS: dict[str, str] = {
+    "host.status": "Система проверена",
+    "host.sessions": "Сессии просмотрены",
+    "ssh.recent": "SSH-события просмотрены",
+    "security.summary": "Безопасность проверена",
+    "firewall.list": "Whitelist просмотрен",
+    "firewall.snapshot": "Доступ просмотрен",
+    "firewall.allow": "Доступ выдан",
+    "firewall.extend": "Доступ продлён",
+    "firewall.revoke": "Доступ отозван",
+    "service.list": "Сервисы просмотрены",
+    "service.status": "Сервис проверен",
+    "service.logs": "Логи сервиса просмотрены",
+    "service.restart": "Сервис перезапущен",
+    "settings.view": "Настройки открыты",
+    "selftest": "Самопроверка выполнена",
+    "confirmation": "Действие отменено",
+}
+
+_OUTCOME_LABELS: dict[str, str] = {
+    "ok": "готово",
+    "confirmed": "выполнено",
+    "pending": "ожидает подтверждения",
+    "denied": "отклонено",
+    "error": "ошибка",
+    "helper_error": "helper недоступен",
+    "cancelled": "отменено",
+    "attention": "требует внимания",
+}
+
+
+def _service_token(unit: str) -> str:
+    return hashlib.sha256(unit.encode("utf-8")).hexdigest()[:12]
+
+
+def _audit_target(details: object) -> str:
+    if not isinstance(details, dict):
+        return ""
+    for key in ("ip", "unit"):
+        value = details.get(key)
+        if value:
+            return f" · {_safe(value)}"
+    return ""
+
+
 def _service_fields(raw: str) -> dict[str, str]:
     fields: dict[str, str] = {}
     for line in raw.splitlines():
@@ -244,6 +290,7 @@ class BotApp:
         self.rate = RateLimiter(config.rate_limit_per_minute)
         self.input_modes: dict[int, str] = {}
         self.wizard: dict[int, dict[str, Any]] = {}
+        self.alert_state: dict[str, bool] = {}
 
     def _is_admin(self, user_id: int) -> bool:
         return user_id in self.config.admin_ids
@@ -564,9 +611,10 @@ class BotApp:
 
         rows: list[list[dict[str, str]]] = []
         for unit in units[:12]:
-            label = str(unit)
+            label = validate_unit(str(unit))
+            token = _service_token(label)
             rows.append(
-                [{"text": f"⚙️ {label}", "callback_data": f"svc:{label}"}]
+                [{"text": f"⚙️ {label}", "callback_data": f"svc:{token}"}]
             )
         rows.append(
             [
@@ -603,11 +651,12 @@ class BotApp:
             f"Состояние: <code>{_safe(active)}</code> / <code>{_safe(sub)}</code>\n"
             f"Unit: <code>{_safe(unit)}</code>"
         )
+        token = _service_token(unit)
         keyboard = {
             "inline_keyboard": [
                 [
-                    {"text": "📄 Логи", "callback_data": f"logs:{unit}"},
-                    {"text": "↻ Перезапустить", "callback_data": f"restart:{unit}"},
+                    {"text": "📄 Логи", "callback_data": f"logs:{token}"},
+                    {"text": "↻ Перезапустить", "callback_data": f"restart:{token}"},
                 ],
                 [
                     {"text": "← Сервисы", "callback_data": "ui:services"},
@@ -636,11 +685,12 @@ class BotApp:
             f"<b><code>{_safe(unit)}</code></b>\n\n"
             f"{_code(str(result), 3000)}"
         )
+        token = _service_token(unit)
         keyboard = {
             "inline_keyboard": [
-                [{"text": "↻ Обновить", "callback_data": f"logs:{unit}"}],
+                [{"text": "↻ Обновить", "callback_data": f"logs:{token}"}],
                 [
-                    {"text": "← Сервис", "callback_data": f"svc:{unit}"},
+                    {"text": "← Сервис", "callback_data": f"svc:{token}"},
                     {"text": "⌂ Главная", "callback_data": "ui:home"},
                 ],
             ]
@@ -674,6 +724,8 @@ class BotApp:
             f"Firewall: {firewall_label}\n"
             f"SSH-порт: <code>{_safe(firewall.get('ssh_port', '—'))}</code>\n"
             f"Управляемых сервисов: <b>{len(units)}</b>\n"
+            f"Проверка здоровья: <b>{self.config.alert_interval_seconds}с</b>\n"
+            f"SSH alert: <b>{self.config.ssh_failed_alert_threshold}+ ошибок</b>\n"
             "Режим управления: <code>private chat only</code>\n\n"
             "Изменение системных параметров выполняется только через "
             "локальную конфигурацию VPS. В Telegram доступны безопасные операции."
@@ -787,11 +839,15 @@ class BotApp:
                 stamp = dt.datetime.fromtimestamp(
                     int(row["created_at"]), tz=dt.UTC
                 ).strftime("%H:%M")
+                action = str(row["action"])
                 outcome = str(row["outcome"])
                 icon = icons.get(outcome, "·")
+                label = _ACTION_LABELS.get(action, action)
+                outcome_label = _OUTCOME_LABELS.get(outcome, outcome)
+                target = _audit_target(row.get("details"))
                 lines.append(
                     f"<code>{_safe(stamp)}</code>  {icon}  "
-                    f"{_safe(row['action'])}  <i>{_safe(outcome)}</i>"
+                    f"{_safe(label)}{target} · <i>{_safe(outcome_label)}</i>"
                 )
             body = "📝 <b>Последние действия</b>\n\n" + "\n".join(lines)
         await self._show(
@@ -983,7 +1039,9 @@ class BotApp:
                     [
                         {
                             "text": "Открыть сервис",
-                            "callback_data": f"svc:{args['unit']}",
+                            "callback_data": (
+                                f"svc:{_service_token(str(args['unit']))}"
+                            ),
                         }
                     ],
                     [{"text": "⌂ Главная", "callback_data": "ui:home"}],
@@ -999,6 +1057,15 @@ class BotApp:
             keyboard,
             message_id,
         )
+
+    async def _resolve_service_ref(self, ref: str) -> str:
+        managed = await self.helper.call("service.list")
+        units = managed if isinstance(managed, list) else []
+        for raw_unit in units:
+            unit = validate_unit(str(raw_unit))
+            if ref == unit or ref == _service_token(unit):
+                return unit
+        raise ValidationError("service is not managed")
 
     async def _handle_callback(
         self,
@@ -1094,16 +1161,15 @@ class BotApp:
                     message_id,
                 )
         elif data.startswith("svc:"):
-            await self._show_service(chat_id, admin_id, data[4:], message_id)
+            unit = await self._resolve_service_ref(data.split(":", 1)[1])
+            await self._show_service(chat_id, admin_id, unit, message_id)
         elif data.startswith("logs:"):
+            unit = await self._resolve_service_ref(data.split(":", 1)[1])
             await self._show_service_logs(
-                chat_id, admin_id, data.split(":", 1)[1], message_id
+                chat_id, admin_id, unit, message_id
             )
         elif data.startswith("restart:"):
-            unit = validate_unit(data.split(":", 1)[1])
-            managed = await self.helper.call("service.list")
-            if not isinstance(managed, list) or unit not in managed:
-                raise ValidationError("service is not managed")
+            unit = await self._resolve_service_ref(data.split(":", 1)[1])
             await self._confirmed_request(
                 chat_id,
                 admin_id,
@@ -1389,11 +1455,122 @@ class BotApp:
                 _back_keyboard(),
             )
 
+    async def _notify_admins(self, title: str, body: str) -> None:
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "Открыть панель", "callback_data": "ui:home"}]
+            ]
+        }
+        for admin_id in self.config.admin_ids:
+            with contextlib.suppress(TelegramAPIError):
+                await self.api.send_message(
+                    admin_id,
+                    _screen(title, body, "Автоматическое уведомление"),
+                    keyboard,
+                )
+
+    async def _set_alert(
+        self,
+        key: str,
+        active: bool,
+        active_body: str,
+        resolved_body: str | None = None,
+    ) -> None:
+        previous = self.alert_state.get(key)
+        self.alert_state[key] = active
+
+        if previous is None:
+            if active:
+                await self._notify_admins("Требует внимания", active_body)
+            return
+
+        if previous == active:
+            return
+
+        if active:
+            await self._notify_admins("Требует внимания", active_body)
+        elif resolved_body:
+            await self._notify_admins("Состояние восстановлено", resolved_body)
+
+    async def _watchdog_check(self) -> None:
+        try:
+            status = await self.helper.call("host.status")
+            helper_ok = isinstance(status, dict)
+        except HelperError:
+            helper_ok = False
+
+        await self._set_alert(
+            "helper",
+            not helper_ok,
+            "🔴 Локальный privileged helper не отвечает.",
+            "🟢 Локальный privileged helper снова отвечает.",
+        )
+        if not helper_ok:
+            return
+
+        firewall = await self.helper.call("firewall.health")
+        if isinstance(firewall, dict):
+            firewall_ok = (
+                firewall.get("mode") == "nft"
+                and bool(firewall.get("active"))
+            )
+            await self._set_alert(
+                "firewall",
+                not firewall_ok,
+                "🟡 SSH whitelist не находится в активном managed-режиме.",
+                "🟢 Managed SSH whitelist снова активен.",
+            )
+
+        summary = await self.helper.call("ssh.summary", {"minutes": 15})
+        if isinstance(summary, dict):
+            failed = int(summary.get("failed", 0))
+            threshold = self.config.ssh_failed_alert_threshold
+            await self._set_alert(
+                "ssh-failures",
+                failed >= threshold,
+                (
+                    "⚠ За последние 15 минут обнаружено "
+                    f"<b>{failed}</b> неудачных SSH-аутентификаций."
+                ),
+                "🟢 Частота неудачных SSH-аутентификаций вернулась в норму.",
+            )
+
+        managed = await self.helper.call("service.list")
+        units = managed if isinstance(managed, list) else []
+        for raw_unit in units[:20]:
+            unit = validate_unit(str(raw_unit))
+            raw_status = await self.helper.call(
+                "service.status", {"unit": unit}
+            )
+            fields = _service_fields(str(raw_status))
+            active = fields.get("ActiveState") == "active"
+            await self._set_alert(
+                f"service:{unit}",
+                not active,
+                (
+                    f"🔴 Сервис <code>{_safe(unit)}</code> "
+                    "не находится в состоянии active."
+                ),
+                f"🟢 Сервис <code>{_safe(unit)}</code> восстановлен.",
+            )
+
+    async def _watchdog(self) -> None:
+        await asyncio.sleep(5)
+        while True:
+            try:
+                await self._watchdog_check()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
+            await asyncio.sleep(self.config.alert_interval_seconds)
+
     async def run(self) -> None:
         with contextlib.suppress(TelegramAPIError):
             await self.api.configure_profile()
 
         offset: int | None = None
+        watchdog_task = asyncio.create_task(self._watchdog())
         print(f"{BRAND}: dashboard bot started", flush=True)
         try:
             while True:
@@ -1413,6 +1590,9 @@ class BotApp:
                 except Exception:
                     await asyncio.sleep(2)
         finally:
+            watchdog_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watchdog_task
             await self.api.close()
 
 
