@@ -26,10 +26,17 @@ class TelegramAPI:
     async def _call(self, method: str, payload: dict[str, Any]) -> Any:
         try:
             response = await self._client.post(f"{self._base}/{method}", json=payload)
-            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise TelegramAPIError("Telegram API transport failed") from exc
+
+        try:
             data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise TelegramAPIError("Telegram API request failed") from exc
+        except ValueError as exc:
+            if response.is_error:
+                raise TelegramAPIError(
+                    f"Telegram API HTTP {response.status_code}"
+                ) from exc
+            raise TelegramAPIError("Telegram API returned invalid JSON") from exc
 
         if not isinstance(data, dict) or not data.get("ok"):
             description = (
@@ -39,6 +46,22 @@ class TelegramAPI:
             )
             raise TelegramAPIError(description[:240])
         return data.get("result")
+
+    @staticmethod
+    def _can_fallback_rich(exc: TelegramAPIError) -> bool:
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "rich",
+                "method not found",
+                "can't parse",
+                "cannot parse",
+                "not supported",
+                "unsupported",
+                "bad request",
+            )
+        )
 
     async def get_updates(
         self, offset: int | None, timeout: int
@@ -73,7 +96,9 @@ class TelegramAPI:
             try:
                 await self._call("sendRichMessage", rich_payload)
                 return
-            except TelegramAPIError:
+            except TelegramAPIError as exc:
+                if not self._can_fallback_rich(exc):
+                    raise
                 text = text.text
 
         payload: dict[str, Any] = {
@@ -110,6 +135,8 @@ class TelegramAPI:
             except TelegramAPIError as exc:
                 if "message is not modified" in str(exc).lower():
                     return
+                if not self._can_fallback_rich(exc):
+                    raise
                 text = text.text
 
         payload: dict[str, Any] = {
