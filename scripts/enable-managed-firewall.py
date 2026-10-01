@@ -88,7 +88,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--state",
-        default="/var/lib/telegram-guard/firewall.json",
+        default="/var/lib/telegram-guard-helper/firewall.json",
     )
     parser.add_argument(
         "--ssh-connection",
