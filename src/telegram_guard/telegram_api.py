@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from telegram_guard import __version__
+from telegram_guard.telegram_ui import TelegramView
 
 
 class TelegramAPIError(RuntimeError):
