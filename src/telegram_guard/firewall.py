@@ -293,6 +293,41 @@ class NftWhitelist:
             "set": self._set_for(address),
         }
 
+    def extend(self, ip_value: str, extra_seconds: int) -> dict[str, str | int]:
+        self._assert_write_mode()
+        if not 60 <= extra_seconds <= 7 * 86400:
+            raise ValueError("extension is outside the allowed range")
+
+        address = parse_ip(ip_value)
+        entries = self._load_entries()
+        existing = entries.get(str(address))
+        if not isinstance(existing, dict):
+            raise ValueError("whitelist entry does not exist")
+        if existing.get("expires_at") is None:
+            raise ValueError("permanent whitelist entry does not expire")
+
+        now = int(time.time())
+        current_expiry = int(existing["expires_at"])
+        new_expiry = max(now, current_expiry) + extra_seconds
+        if new_expiry - now > 7 * 86400:
+            raise ValueError("resulting TTL would exceed 7 days")
+
+        existing["expires_at"] = new_expiry
+        existing["source"] = str(existing.get("source", "telegram"))
+
+        self._run(
+            ["delete", "table", self.config.nft_family, self.config.nft_table],
+            check=False,
+        )
+        self._run_script(self._ruleset(entries))
+        self._save_entries(entries)
+
+        return {
+            "ip": str(address),
+            "remaining_seconds": new_expiry - now,
+            "set": self._set_for(address),
+        }
+
     def revoke(self, ip_value: str) -> dict[str, str | bool]:
         self._assert_write_mode()
         address = parse_ip(ip_value)
