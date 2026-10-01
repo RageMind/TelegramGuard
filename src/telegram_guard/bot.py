@@ -762,7 +762,10 @@ class BotApp:
                 ("Reboot", "yes" if reboot else "no"),
             ],
             columns=2,
-            note="Все проверки read-only; изменяющие действия остаются отдельными и подтверждаемыми.",
+            note=(
+                "Все проверки read-only; изменяющие действия остаются "
+                "отдельными и подтверждаемыми."
+            ),
             details_title="Проблемные units",
             details_text=details,
         )
