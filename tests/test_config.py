@@ -16,6 +16,9 @@ def test_bot_config(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.helper_socket.endswith("helper.sock")
     assert config.alert_interval_seconds == 60
     assert config.ssh_failed_alert_threshold == 10
+    assert config.ssh_approval_enabled is False
+    assert config.ssh_approval_timeout == 75
+    assert config.ssh_approval_socket.endswith("approval.sock")
 
 
 def test_bot_config_rejects_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,3 +59,18 @@ def test_bot_config_rejects_invalid_alert_interval(
     monkeypatch.setenv("ALERT_INTERVAL_SECONDS", "5")
     with pytest.raises(ConfigError):
         BotConfig.from_env()
+
+
+def test_bot_config_accepts_ssh_approval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "TELEGRAM_BOT_TOKEN",
+        "not-a-real-token:abcdefghijklmnopqrstuvwxyz",
+    )
+    monkeypatch.setenv("TELEGRAM_ADMIN_IDS", "111111111")
+    monkeypatch.setenv("SSH_APPROVAL_ENABLED", "true")
+    monkeypatch.setenv("SSH_APPROVAL_TIMEOUT", "90")
+    config = BotConfig.from_env()
+    assert config.ssh_approval_enabled is True
+    assert config.ssh_approval_timeout == 90

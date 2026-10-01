@@ -99,6 +99,9 @@ TELEGRAM_POLL_TIMEOUT=25
 RATE_LIMIT_PER_MINUTE=20
 ALERT_INTERVAL_SECONDS=60
 SSH_FAILED_ALERT_THRESHOLD=10
+SSH_APPROVAL_ENABLED=false
+SSH_APPROVAL_SOCKET=/run/telegram-guard-bot/approval.sock
+SSH_APPROVAL_TIMEOUT=75
 STATE_DB=${STATE_ROOT}/state.sqlite3
 HELPER_SOCKET=/run/telegram-guard/helper.sock
 EOF
@@ -184,6 +187,8 @@ systemctl restart telegram-guard-helper.service 2>/dev/null || true
 echo "TelegramGuard managed SSH whitelist disabled."
 EOF_RECOVERY
 chmod 0700 /usr/local/sbin/telegram-guard-firewall-off
+
+install -m 0700   "${ROOT_DIR}/packaging/disable-ssh-approval.sh"   /usr/local/sbin/telegram-guard-ssh-approval-off
 
 systemctl daemon-reload
 systemctl enable telegram-guard-helper.service >/dev/null
