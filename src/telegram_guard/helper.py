@@ -111,6 +111,11 @@ class HelperServer:
             address = parse_ip(ip_value)
             ttl_seconds = int(args["ttl_seconds"])
             return self.firewall.allow(str(address), ttl_seconds)
+        if action == "firewall.extend":
+            ip_value = str(args["ip"])
+            address = parse_ip(ip_value)
+            extra_seconds = int(args["extra_seconds"])
+            return self.firewall.extend(str(address), extra_seconds)
         if action == "firewall.revoke":
             ip_value = str(args["ip"])
             address = parse_ip(ip_value)
