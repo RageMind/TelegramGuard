@@ -23,7 +23,8 @@ from telegram_guard.security import (
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
-from telegram_guard.telegram_ui import button, keyboard, screen as _screen
+from telegram_guard.telegram_ui import button, keyboard
+from telegram_guard.telegram_ui import screen as _screen
 
 
 def _safe(value: object) -> str:
