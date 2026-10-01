@@ -15,6 +15,7 @@ from telegram_guard import BRAND
 from telegram_guard.config import HelperConfig
 from telegram_guard.firewall import NftWhitelist
 from telegram_guard.security import parse_ip, validate_unit
+from telegram_guard.ssh_access import SshApprovalControl
 from telegram_guard.system_info import SystemController
 
 _MAX_REQUEST_BYTES = 16_384
@@ -25,6 +26,7 @@ class HelperServer:
         self.config = config
         self.system = SystemController(config)
         self.firewall = NftWhitelist(config)
+        self.ssh_approval = SshApprovalControl()
         if config.firewall_mode == "nft":
             self.firewall.ensure()
         self.allowed_uid = pwd.getpwnam(config.allowed_user).pw_uid
@@ -111,6 +113,12 @@ class HelperServer:
             if not 1 <= minutes <= 1440:
                 raise ValueError("minutes must be between 1 and 1440")
             return self.system.ssh_summary(minutes)
+        if action == "ssh.approval.status":
+            return self.ssh_approval.status()
+        if action == "ssh.approval.enable":
+            return self.ssh_approval.enable()
+        if action == "ssh.approval.disable":
+            return self.ssh_approval.disable()
         if action == "firewall.health":
             return self.firewall.health()
         if action == "firewall.snapshot":
