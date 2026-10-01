@@ -10,7 +10,6 @@ from typing import Final
 
 HELPER_ENV: Final = Path("/etc/telegram-guard/helper.env")
 BOT_ENV: Final = Path("/etc/telegram-guard/bot.env")
-STATE_FILE: Final = Path("/var/lib/telegram-guard/firewall.json")
 HELPER_SOCKET: Final = Path("/run/telegram-guard/helper.sock")
 
 
@@ -96,6 +95,12 @@ def main() -> None:
     family = helper_env.get("NFT_FAMILY", "inet")
     table = helper_env.get("NFT_TABLE", "telegram_guard")
     ssh_port = helper_env.get("SSH_PORT", "unknown")
+    state_file = Path(
+        helper_env.get(
+            "FIREWALL_STATE",
+            "/var/lib/telegram-guard-helper/firewall.json",
+        )
+    )
 
     bot_configured = False
     if BOT_ENV.is_file():
@@ -116,7 +121,7 @@ def main() -> None:
             _nft_active(family, table) if firewall_mode == "nft" else False
         ),
         "ssh_port": ssh_port,
-        "whitelist_entries": _state_entries(STATE_FILE),
+        "whitelist_entries": _state_entries(state_file),
     }
 
     healthy = (
