@@ -145,3 +145,26 @@ def test_apply_entries_replaces_existing_table_in_single_script(
     assert scripts[0].startswith("delete table inet telegram_guard\n")
     assert "table inet telegram_guard" in scripts[0]
     assert firewall._load_entries() == entries
+
+
+def test_make_permanent_converts_temporary_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = controller(tmp_path, monkeypatch)
+    firewall._save_entries(
+        {
+            "203.0.113.42": {
+                "expires_at": int(time.time()) + 600,
+                "source": "telegram",
+                "added_at": int(time.time()),
+            }
+        }
+    )
+
+    result = firewall.make_permanent("203.0.113.42")
+    entries = firewall._load_entries()
+
+    assert result["permanent"] is True
+    assert entries["203.0.113.42"]["expires_at"] is None
+    assert entries["203.0.113.42"]["source"] == "telegram-permanent"
