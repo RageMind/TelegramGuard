@@ -160,6 +160,24 @@ Temporary access supports:
 
 Bootstrap access is visually marked and protected.
 
+### Automatic alerts
+
+The bot includes a deduplicated health watchdog. It notifies configured admins only when state changes:
+
+- privileged helper becomes unavailable / recovers;
+- managed SSH whitelist unexpectedly becomes inactive / recovers;
+- failed SSH authentication count reaches the configured threshold;
+- an allowlisted managed service becomes non-active / recovers.
+
+Defaults:
+
+```env
+ALERT_INTERVAL_SECONDS=60
+SSH_FAILED_ALERT_THRESHOLD=10
+```
+
+The watchdog does not expose secrets or raw environment data in notifications.
+
 ### Service control
 
 Only units in `MANAGED_SERVICES` can be accessed.
@@ -193,9 +211,12 @@ CI runs:
 
 ```bash
 python scripts/public_safety_scan.py .
+bash -n packaging/install.sh packaging/uninstall.sh
+python -m compileall -q src scripts tests
 ruff check .
 mypy src
 pytest -q
+python -m pip wheel . --no-deps --wheel-dir /tmp/telegramguard-wheel
 ```
 
 The public safety scanner rejects common credential formats, private key blocks, runtime databases/logs and non-documentation public IPv4 literals.
