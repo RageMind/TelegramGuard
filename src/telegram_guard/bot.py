@@ -100,10 +100,13 @@ def _home_keyboard() -> dict[str, Any]:
             button("Сервисы", "ui:services"),
         ],
         [
-            button("Активность", "ui:audit"),
-            button("Настройки", "ui:settings"),
+            button("Диагностика", "ui:diagnostics", style="primary"),
+            button("Журнал", "ui:audit"),
         ],
-        [button("Обновить", "ui:home")],
+        [
+            button("Настройки", "ui:settings"),
+            button("Обновить", "ui:home"),
+        ],
     )
 
 
@@ -118,12 +121,48 @@ def _back_keyboard(refresh: str | None = None) -> dict[str, Any]:
 def _status_keyboard() -> dict[str, Any]:
     return keyboard(
         [
-            button("Сессии", "ui:sessions"),
-            button("SSH", "ui:ssh"),
+            button("Сеть", "ui:network", style="primary"),
+            button("События", "ui:events"),
         ],
         [
+            button("Обновления", "ui:updates"),
+            button("Сессии", "ui:sessions"),
+        ],
+        [
+            button("SSH", "ui:ssh"),
             button("Обновить", "ui:status"),
-            button("Control Center", "ui:home", style="primary"),
+        ],
+        [button("Control Center", "ui:home", style="primary")],
+    )
+
+
+def _diagnostics_keyboard() -> dict[str, Any]:
+    return keyboard(
+        [
+            button("Самопроверка", "ui:selftest", style="primary"),
+            button("События", "ui:events"),
+        ],
+        [
+            button("Обновления", "ui:updates"),
+            button("Безопасность", "ui:security"),
+        ],
+        [
+            button("Обновить", "ui:diagnostics"),
+            button("Control Center", "ui:home"),
+        ],
+    )
+
+
+def _events_keyboard(minutes: int) -> dict[str, Any]:
+    return keyboard(
+        [
+            button("15 мин", "events:15", style="primary" if minutes == 15 else None),
+            button("1 час", "events:60", style="primary" if minutes == 60 else None),
+            button("24 часа", "events:1440", style="primary" if minutes == 1440 else None),
+        ],
+        [
+            button("Система", "ui:status"),
+            button("Control Center", "ui:home"),
         ],
     )
 
@@ -186,6 +225,9 @@ def _ttl_keyboard() -> dict[str, Any]:
 _ACTION_LABELS: dict[str, str] = {
     "host.status": "Система проверена",
     "host.sessions": "Сессии просмотрены",
+    "system.network": "Сеть проверена",
+    "system.health": "Диагностика выполнена",
+    "system.events": "Системные события просмотрены",
     "ssh.recent": "SSH-события просмотрены",
     "ssh.approval.request": "SSH-вход ожидает подтверждения",
     "ssh.approval.approved": "SSH-вход разрешён",
@@ -324,6 +366,8 @@ class BotApp:
             ram = _percent(used, total)
             disk = _percent(disk_used, disk_total)
             uptime = _uptime(int(result.get("uptime_seconds", 0)))
+            load_1 = float(result.get("load_1", 0.0))
+            cpu_count = max(1, int(result.get("cpu_count", 0) or 1))
 
             firewall_active = (
                 firewall.get("mode") == "nft"
@@ -336,14 +380,21 @@ class BotApp:
                 else 0
             )
             approval_active = self.config.ssh_approval_enabled
+
             attention = 0
             if not approval_active and not firewall_active:
                 attention += 1
             if ssh_failed >= self.config.ssh_failed_alert_threshold:
                 attention += 1
+            if ram >= self.config.ram_alert_threshold:
+                attention += 1
+            if disk >= self.config.disk_alert_threshold:
+                attention += 1
+            if load_1 >= cpu_count * 2:
+                attention += 1
 
             last_rows = self.state.recent_audit(1)
-            last_action = "Действий пока нет"
+            last_action = "Панель готова"
             if last_rows:
                 last = last_rows[0]
                 action = str(last.get("action", ""))
@@ -360,35 +411,40 @@ class BotApp:
                 access_label = "OFF"
 
             status = (
-                "🟢 VPS ONLINE · NORMAL"
+                "🟢 NORMAL"
                 if attention == 0
-                else f"🟡 VPS ONLINE · ATTENTION {attention}"
+                else f"🟡 ATTENTION · {attention}"
             )
             view = dashboard_screen(
                 "Control Center",
                 status,
                 [
-                    ("Uptime", uptime),
                     ("RAM", f"{ram}%"),
                     ("Disk", f"{disk}%"),
-                    ("Access", access_label),
-                    ("Services", f"{len(units)} managed"),
-                    ("SSH / 15m", f"{ssh_failed} failed"),
+                    ("Load", f"{load_1:.2f}"),
+                    ("SSH", f"{ssh_failed} fail"),
+                    ("Uptime", uptime),
+                    ("Services", len(units)),
                 ],
+                note=f"Доступ: {access_label}",
                 footer=last_action,
+                columns=2,
+                details_title="Доступ и состояние",
             )
         except HelperError:
             view = dashboard_screen(
                 "Control Center",
-                "🔴 CONTROL PLANE DEGRADED",
+                "🔴 DEGRADED",
                 [
                     ("Bot", "online"),
-                    ("Privileged helper", "unavailable"),
+                    ("Helper", "unavailable"),
                 ],
                 note=(
                     "Telegram-интерфейс доступен, но системные действия "
                     "временно заблокированы."
                 ),
+                columns=2,
+                details_title="Что произошло",
             )
 
         await self._show(
@@ -404,11 +460,305 @@ class BotApp:
         result = await self.helper.call("host.status")
         if not isinstance(result, dict):
             raise HelperError("invalid status response")
+
+        total = int(result.get("memory_total", 0))
+        available = int(result.get("memory_available", 0))
+        used = max(total - available, 0)
+        swap_total = int(result.get("swap_total", 0))
+        swap_free = int(result.get("swap_free", 0))
+        swap_used = max(swap_total - swap_free, 0)
+        disk_total = int(result.get("disk_total", 0))
+        disk_free = int(result.get("disk_free", 0))
+        disk_used = max(disk_total - disk_free, 0)
+        inode_total = int(result.get("inode_total", 0))
+        inode_free = int(result.get("inode_free", 0))
+        inode_used = max(inode_total - inode_free, 0)
+
+        ram = _percent(used, total)
+        swap = _percent(swap_used, swap_total) if swap_total else 0
+        disk = _percent(disk_used, disk_total)
+        inode = _percent(inode_used, inode_total)
+        cpu_count = int(result.get("cpu_count", 0))
+        load_1 = float(result.get("load_1", 0.0))
+        load_5 = float(result.get("load_5", 0.0))
+        load_15 = float(result.get("load_15", 0.0))
+
+        attention = (
+            ram >= self.config.ram_alert_threshold
+            or disk >= self.config.disk_alert_threshold
+            or (cpu_count > 0 and load_1 >= cpu_count * 2)
+        )
+        details = (
+            f"Host: {result.get('hostname', '—')}\n"
+            f"OS: {result.get('os_name', '—')}\n"
+            f"Kernel: {result.get('kernel', '—')}\n"
+            f"Inodes: {inode}% used"
+        )
+        view = dashboard_screen(
+            "Система",
+            "🟡 ATTENTION" if attention else "🟢 HEALTHY",
+            [
+                ("CPU", f"{cpu_count or '—'} vCPU"),
+                ("Load", f"{load_1:.2f}/{load_5:.2f}/{load_15:.2f}"),
+                ("RAM", f"{ram}% · {_human_bytes(used)}"),
+                ("Swap", f"{swap}% · {_human_bytes(swap_used)}"),
+                ("Disk", f"{disk}% · {_human_bytes(disk_used)}"),
+                ("Processes", int(result.get("process_count", 0))),
+            ],
+            footer=f"Uptime · {_uptime(int(result.get('uptime_seconds', 0)))}",
+            columns=2,
+            details_title="Система и ядро",
+            details_text=details,
+        )
         self.state.audit(admin_id, "host.status", "ok")
         await self._show(
             chat_id,
-            _screen("Система", _status_body(result)),
+            view,
             _status_keyboard(),
+            message_id,
+        )
+
+    async def _show_network(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+    ) -> None:
+        result = await self.helper.call("system.network")
+        if not isinstance(result, dict):
+            raise HelperError("invalid network response")
+
+        raw_interfaces = result.get("interfaces", [])
+        interfaces = raw_interfaces if isinstance(raw_interfaces, list) else []
+        raw_listeners = result.get("listeners", [])
+        listeners = raw_listeners if isinstance(raw_listeners, list) else []
+
+        detail_lines: list[str] = []
+        for item in interfaces[:8]:
+            if not isinstance(item, dict):
+                continue
+            detail_lines.append(
+                f"{item.get('name', '?')}: "
+                f"RX {_human_bytes(int(item.get('rx_bytes', 0)))} · "
+                f"TX {_human_bytes(int(item.get('tx_bytes', 0)))}"
+            )
+        if listeners:
+            if detail_lines:
+                detail_lines.append("")
+            detail_lines.append("Listening:")
+            for item in listeners[:16]:
+                if not isinstance(item, dict):
+                    continue
+                detail_lines.append(
+                    f"{item.get('proto', '?')}  {item.get('local', '?')}"
+                )
+
+        view = dashboard_screen(
+            "Сеть",
+            "🟢 READ-ONLY",
+            [
+                ("RX", _human_bytes(int(result.get("rx_bytes", 0)))),
+                ("TX", _human_bytes(int(result.get("tx_bytes", 0)))),
+                ("Interfaces", len(interfaces)),
+                ("Listeners", len(listeners)),
+            ],
+            columns=2,
+            details_title="Интерфейсы и порты",
+            details_text="\n".join(detail_lines) or "Нет данных.",
+        )
+        self.state.audit(admin_id, "system.network", "ok")
+        await self._show(
+            chat_id,
+            view,
+            keyboard(
+                [
+                    button("События", "ui:events"),
+                    button("Обновить", "ui:network"),
+                ],
+                [
+                    button("Система", "ui:status", style="primary"),
+                    button("Control Center", "ui:home"),
+                ],
+            ),
+            message_id,
+        )
+
+    async def _show_events(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+        minutes: int = 60,
+    ) -> None:
+        raw = await self.helper.call("system.events", {"minutes": minutes})
+        text_value = str(raw).strip()
+        no_events = text_value.startswith("No warning-or-higher")
+        event_count = 0 if no_events else len(
+            [line for line in text_value.splitlines() if line.strip()]
+        )
+        window = "24ч" if minutes == 1440 else (
+            "1ч" if minutes == 60 else f"{minutes}м"
+        )
+        view = dashboard_screen(
+            "Системные события",
+            "🟢 CLEAN" if event_count == 0 else f"🟡 {event_count} EVENT(S)",
+            [
+                ("Window", window),
+                ("Priority", "warning+"),
+            ],
+            columns=2,
+            details_title="journalctl",
+            details_text=text_value or "Событий нет.",
+        )
+        self.state.audit(
+            admin_id,
+            "system.events",
+            "ok",
+            {"minutes": minutes},
+        )
+        await self._show(
+            chat_id,
+            view,
+            _events_keyboard(minutes),
+            message_id,
+        )
+
+    async def _show_updates(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+    ) -> None:
+        health = await self.helper.call("system.health")
+        if not isinstance(health, dict):
+            raise HelperError("invalid health response")
+
+        failed_raw = health.get("failed_units", [])
+        failed = failed_raw if isinstance(failed_raw, list) else []
+        upgradable = int(health.get("upgradable_packages", 0))
+        reboot = bool(health.get("reboot_required"))
+        attention = bool(failed or reboot)
+
+        view = dashboard_screen(
+            "Обновления",
+            "🟡 MAINTENANCE" if attention else "🟢 READY",
+            [
+                ("Packages", f"{upgradable} upgradable"),
+                ("Reboot", "required" if reboot else "not required"),
+                ("Failed units", len(failed)),
+                ("Manager", health.get("package_manager", "—")),
+            ],
+            columns=2,
+            details_title="Failed systemd units",
+            details_text="\n".join(str(x) for x in failed) or "Нет failed units.",
+        )
+        self.state.audit(admin_id, "system.health", "ok")
+        await self._show(
+            chat_id,
+            view,
+            keyboard(
+                [
+                    button("События", "ui:events"),
+                    button("Обновить", "ui:updates"),
+                ],
+                [
+                    button("Система", "ui:status", style="primary"),
+                    button("Control Center", "ui:home"),
+                ],
+            ),
+            message_id,
+        )
+
+    async def _show_diagnostics(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+    ) -> None:
+        host = await self.helper.call("host.status")
+        health = await self.helper.call("system.health")
+        firewall = await self.helper.call("firewall.health")
+        services = await self.helper.call("service.list")
+        ssh = await self.helper.call("ssh.summary", {"minutes": 15})
+        if (
+            not isinstance(host, dict)
+            or not isinstance(health, dict)
+            or not isinstance(firewall, dict)
+            or not isinstance(ssh, dict)
+        ):
+            raise HelperError("invalid diagnostics response")
+
+        total = int(host.get("memory_total", 0))
+        available = int(host.get("memory_available", 0))
+        ram = _percent(max(total - available, 0), total)
+        disk_total = int(host.get("disk_total", 0))
+        disk_free = int(host.get("disk_free", 0))
+        disk = _percent(max(disk_total - disk_free, 0), disk_total)
+
+        units = services if isinstance(services, list) else []
+        unhealthy_services = 0
+        for raw_unit in units[:20]:
+            unit = validate_unit(str(raw_unit))
+            raw = await self.helper.call("service.status", {"unit": unit})
+            fields = _service_fields(str(raw))
+            if fields.get("ActiveState") != "active":
+                unhealthy_services += 1
+
+        firewall_ok = (
+            firewall.get("mode") == "nft"
+            and bool(firewall.get("active"))
+        )
+        access_ok = self.config.ssh_approval_enabled or firewall_ok
+        failed_units = int(health.get("failed_unit_count", 0))
+        ssh_failed = int(ssh.get("failed", 0))
+        reboot = bool(health.get("reboot_required"))
+
+        issues = sum(
+            (
+                not access_ok,
+                ram >= self.config.ram_alert_threshold,
+                disk >= self.config.disk_alert_threshold,
+                failed_units > 0,
+                unhealthy_services > 0,
+                ssh_failed >= self.config.ssh_failed_alert_threshold,
+                reboot,
+            )
+        )
+
+        failed_raw = health.get("failed_units", [])
+        failed_list = failed_raw if isinstance(failed_raw, list) else []
+        details = "\n".join(str(x) for x in failed_list)
+        if not details:
+            details = "Критических failed units нет."
+
+        view = dashboard_screen(
+            "Диагностика",
+            "🟢 ALL CHECKS OK" if issues == 0 else f"🟡 {issues} ATTENTION",
+            [
+                ("Access", "OK" if access_ok else "OFF"),
+                ("Services", f"{len(units) - unhealthy_services}/{len(units)} active"),
+                ("RAM", f"{ram}%"),
+                ("Disk", f"{disk}%"),
+                ("SSH / 15m", f"{ssh_failed} fail"),
+                ("Updates", int(health.get("upgradable_packages", 0))),
+                ("Failed units", failed_units),
+                ("Reboot", "yes" if reboot else "no"),
+            ],
+            columns=2,
+            note="Все проверки read-only; изменяющие действия остаются отдельными и подтверждаемыми.",
+            details_title="Проблемные units",
+            details_text=details,
+        )
+        self.state.audit(
+            admin_id,
+            "system.health",
+            "ok" if issues == 0 else "attention",
+            {"issues": issues},
+        )
+        await self._show(
+            chat_id,
+            view,
+            _diagnostics_keyboard(),
             message_id,
         )
 
@@ -632,19 +982,22 @@ class BotApp:
 
         status = "🟢 SECURE" if security_ok else "🟡 ATTENTION"
         view = dashboard_screen(
-            "Security",
+            "Безопасность",
             status,
             [
-                ("SSH protection", access_label),
-                ("Active sessions", session_count),
-                ("Accepted / 60m", accepted),
-                ("Failed / 60m", failed),
-                ("Invalid users / 60m", invalid),
+                ("Protection", access_label),
+                ("Sessions", session_count),
+                ("Accepted", accepted),
+                ("Failed", failed),
+                ("Invalid", invalid),
+                ("Window", "60m"),
             ],
             note=(
-                "Административные команды принимаются только в личном чате. "
-                "Privileged helper изолирован от Telegram-процесса."
+                "Управление доступно только в личном чате. "
+                "Privileged helper отделён от Telegram-процесса."
             ),
+            columns=2,
+            details_title="Модель безопасности",
         )
         self.state.audit(admin_id, "security.summary", "ok")
         await self._show(
@@ -824,23 +1177,24 @@ class BotApp:
             else "off"
         )
         view = dashboard_screen(
-            "Settings",
+            "Настройки",
             "QyAi Control OS",
             [
                 ("Version", __version__),
-                ("Access mode", access_mode),
+                ("Access", access_mode),
                 ("SSH port", firewall.get("ssh_port", "—")),
-                ("Services", f"{len(units)} managed"),
-                ("Health check", f"{self.config.alert_interval_seconds}s"),
-                (
-                    "SSH alert",
-                    f"{self.config.ssh_failed_alert_threshold}+ fail",
-                ),
+                ("Services", len(units)),
+                ("Health", f"{self.config.alert_interval_seconds}s"),
+                ("SSH alert", f"{self.config.ssh_failed_alert_threshold}+"),
+                ("RAM alert", f"{self.config.ram_alert_threshold}%"),
+                ("Disk alert", f"{self.config.disk_alert_threshold}%"),
             ],
             note=(
-                "Критические системные настройки изменяются локально на VPS. "
-                "В Telegram остаются только ограниченные и подтверждаемые операции."
+                "Критические настройки меняются локально на VPS. "
+                "Telegram получает только безопасный ограниченный набор операций."
             ),
+            columns=2,
+            details_title="Политика управления",
         )
         self.state.audit(admin_id, "settings.view", "ok")
         await self._show(
