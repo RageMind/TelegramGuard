@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -155,19 +156,11 @@ def set_managed_services(
         _restart_helper()
     except Exception:
         _atomic_write(helper_env, original, original_mode)
-        with contextlib_suppress_restart():
+        with contextlib.suppress(Exception):
             _restart_helper()
         raise
 
     return normalized
-
-
-class contextlib_suppress_restart:
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
-        return True
 
 
 def export_non_secret_config(
