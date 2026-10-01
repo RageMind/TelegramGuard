@@ -351,7 +351,44 @@ class BotApp:
     ) -> None:
         try:
             result = await self.helper.call("host.status")
-            firewall = await self.helper.call("firewall.health")
+            if isinstance(status, dict):
+            total = int(status.get("memory_total", 0))
+            available = int(status.get("memory_available", 0))
+            ram = _percent(max(total - available, 0), total)
+            disk_total = int(status.get("disk_total", 0))
+            disk_free = int(status.get("disk_free", 0))
+            disk = _percent(max(disk_total - disk_free, 0), disk_total)
+
+            await self._set_alert(
+                "ram",
+                ram >= self.config.ram_alert_threshold,
+                (
+                    "🟡 RAM достигла "
+                    f"<b>{ram}%</b> (порог {self.config.ram_alert_threshold}%)."
+                ),
+                "🟢 Использование RAM вернулось ниже порога.",
+            )
+            await self._set_alert(
+                "disk",
+                disk >= self.config.disk_alert_threshold,
+                (
+                    "🟡 Диск заполнен на "
+                    f"<b>{disk}%</b> (порог {self.config.disk_alert_threshold}%)."
+                ),
+                "🟢 Использование диска вернулось ниже порога.",
+            )
+
+        health = await self.helper.call("system.health")
+        if isinstance(health, dict):
+            failed_units = int(health.get("failed_unit_count", 0))
+            await self._set_alert(
+                "failed-units",
+                failed_units > 0,
+                f"🔴 Systemd failed units: <b>{failed_units}</b>.",
+                "🟢 Systemd failed units больше не обнаружены.",
+            )
+
+        firewall = await self.helper.call("firewall.health")
             services = await self.helper.call("service.list")
             ssh = await self.helper.call("ssh.summary", {"minutes": 15})
             if not isinstance(result, dict) or not isinstance(firewall, dict):
@@ -1669,6 +1706,22 @@ class BotApp:
             await self._show_home(chat_id, message_id)
         elif data == "ui:status":
             await self._show_status(chat_id, admin_id, message_id)
+        elif data == "ui:network":
+            await self._show_network(chat_id, admin_id, message_id)
+        elif data == "ui:events":
+            await self._show_events(chat_id, admin_id, message_id)
+        elif data.startswith("events:"):
+            raw_minutes = data.split(":", 1)[1]
+            if not raw_minutes.isdigit():
+                raise ValidationError("invalid event window")
+            minutes = max(1, min(int(raw_minutes), 1440))
+            await self._show_events(
+                chat_id, admin_id, message_id, minutes=minutes
+            )
+        elif data == "ui:updates":
+            await self._show_updates(chat_id, admin_id, message_id)
+        elif data == "ui:diagnostics":
+            await self._show_diagnostics(chat_id, admin_id, message_id)
         elif data == "ui:access":
             self.wizard.pop(admin_id, None)
             await self._show_access(chat_id, admin_id, message_id)
@@ -1889,6 +1942,26 @@ class BotApp:
         if command == "/status":
             await self._show_status(chat_id, admin_id)
             return
+        if command == "/network":
+            await self._show_network(chat_id, admin_id)
+            return
+        if command == "/events":
+            minutes = 60
+            if args:
+                if not args[0].isdigit():
+                    raise ValidationError("minutes must be numeric")
+                minutes = max(1, min(int(args[0]), 1440))
+            await self._show_events(chat_id, admin_id, minutes=minutes)
+            return
+        if command == "/updates":
+            await self._show_updates(chat_id, admin_id)
+            return
+        if command == "/doctor":
+            await self._show_diagnostics(chat_id, admin_id)
+            return
+        if command == "/selftest":
+            await self._show_self_test(chat_id, admin_id)
+            return
         if command == "/sessions":
             await self._show_sessions(chat_id, admin_id)
             return
@@ -1958,11 +2031,8 @@ class BotApp:
         if command == "/audit":
             await self._show_audit(chat_id)
             return
-        if command in {"/settings", "/doctor"}:
-            if command == "/doctor":
-                await self._show_self_test(chat_id, admin_id)
-            else:
-                await self._show_settings(chat_id, admin_id)
+        if command == "/settings":
+            await self._show_settings(chat_id, admin_id)
             return
         if command == "/version":
             await self._show_about(chat_id)
@@ -2009,7 +2079,11 @@ class BotApp:
                 "ui:access",
                 "ui:security",
                 "ui:services",
-            } or data.startswith(("logs:", "audit:")):
+                "ui:network",
+                "ui:events",
+                "ui:updates",
+                "ui:diagnostics",
+            } or data.startswith(("logs:", "audit:", "events:")):
                 feedback = "Обновляю…"
             elif data.startswith(("confirm:", "ssha:", "sshd:")):
                 feedback = "Выполняю…"
