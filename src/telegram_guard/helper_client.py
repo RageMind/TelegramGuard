@@ -38,7 +38,7 @@ class HelperClient:
             finally:
                 writer.close()
                 await writer.wait_closed()
-        except (OSError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, OSError) as exc:
             raise HelperError("local helper is unavailable") from exc
 
         if not line or len(line) > 65_536:
