@@ -14,6 +14,8 @@ ExecStart=/opt/telegram-guard/venv/bin/telegram-guard
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=15s
+RuntimeDirectory=telegram-guard-bot
+RuntimeDirectoryMode=0700
 UMask=0077
 
 NoNewPrivileges=true
@@ -35,7 +37,7 @@ SystemCallArchitectures=native
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/var/lib/telegram-guard
+ReadWritePaths=/var/lib/telegram-guard /run/telegram-guard-bot
 ReadOnlyPaths=/etc/telegram-guard
 
 [Install]
