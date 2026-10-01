@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+
 import pytest
 
 from telegram_guard.system_info import SystemController
