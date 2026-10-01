@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 from typing import Any
 
@@ -254,7 +255,7 @@ class BotApp:
             lines = []
             for row in rows:
                 stamp = dt.datetime.fromtimestamp(
-                    int(row["created_at"]), tz=dt.timezone.utc
+                    int(row["created_at"]), tz=dt.UTC
                 ).strftime("%Y-%m-%d %H:%MZ")
                 lines.append(
                     f"{stamp} · {row['action']} · {row['outcome']} · "
@@ -316,6 +317,10 @@ class BotApp:
             message = callback.get("message", {})
             chat = message.get("chat", {}) if isinstance(message, dict) else {}
             chat_id = int(chat.get("id", 0)) if isinstance(chat, dict) else 0
+            chat_type = str(chat.get("type", "")) if isinstance(chat, dict) else ""
+            if chat_type != "private":
+                await self.api.answer_callback(callback_id, "Private chat only")
+                return
             data = str(callback.get("data", ""))
 
             if data.startswith("cancel:"):
@@ -339,6 +344,9 @@ class BotApp:
         chat = message.get("chat", {})
         user_id = int(user.get("id", 0)) if isinstance(user, dict) else 0
         chat_id = int(chat.get("id", 0)) if isinstance(chat, dict) else 0
+        chat_type = str(chat.get("type", "")) if isinstance(chat, dict) else ""
+        if chat_type != "private":
+            return
         if not self._is_admin(user_id) or not chat_id:
             return
         if not self.rate.allow(user_id):
@@ -373,10 +381,8 @@ class BotApp:
             )
 
     async def run(self) -> None:
-        try:
+        with contextlib.suppress(TelegramAPIError):
             await self.api.set_commands()
-        except TelegramAPIError:
-            pass
 
         offset: int | None = None
         print(f"{BRAND}: bot started", flush=True)
@@ -403,10 +409,8 @@ class BotApp:
 
 def main() -> None:
     config = BotConfig.from_env()
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(BotApp(config).run())
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":

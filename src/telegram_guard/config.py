@@ -75,7 +75,7 @@ class BotConfig:
     helper_socket: str
 
     @classmethod
-    def from_env(cls) -> "BotConfig":
+    def from_env(cls) -> BotConfig:
         token = _required("TELEGRAM_BOT_TOKEN")
         if ":" not in token or len(token) < 20:
             raise ConfigError("TELEGRAM_BOT_TOKEN does not look valid")
@@ -111,7 +111,7 @@ class HelperConfig:
     ssh_journal_unit: str
 
     @classmethod
-    def from_env(cls) -> "HelperConfig":
+    def from_env(cls) -> HelperConfig:
         socket_path = os.environ.get(
             "HELPER_SOCKET", "/run/telegram-guard/helper.sock"
         ).strip()

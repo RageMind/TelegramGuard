@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -58,20 +59,16 @@ class SystemController:
 
     def host_status(self) -> dict[str, Any]:
         uptime_seconds = 0
-        try:
+        with contextlib.suppress(OSError, ValueError, IndexError):
             uptime_seconds = int(float(Path("/proc/uptime").read_text().split()[0]))
-        except (OSError, ValueError, IndexError):
-            pass
 
         memory: dict[str, int] = {}
-        try:
+        with contextlib.suppress(OSError, ValueError):
             for line in Path("/proc/meminfo").read_text().splitlines():
                 key, value = line.split(":", 1)
                 parts = value.strip().split()
                 if parts:
                     memory[key] = int(parts[0]) * 1024
-        except (OSError, ValueError):
-            pass
 
         disk = shutil.disk_usage("/")
         load = os.getloadavg()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import secrets
@@ -52,10 +53,8 @@ class StateStore:
                 ON pending_actions(expires_at);
                 """
             )
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(self.path, 0o600)
-        except OSError:
-            pass
 
     def audit(
         self,

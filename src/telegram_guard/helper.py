@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import grp
 import json
 import os
@@ -39,7 +40,7 @@ class HelperServer:
             _pid, uid, _gid = struct.unpack("3i", credentials)
         except OSError:
             return False
-        return uid == self.allowed_uid
+        return int(uid) == self.allowed_uid
 
     async def handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -119,10 +120,8 @@ class HelperServer:
 async def _serve(config: HelperConfig) -> None:
     socket_path = Path(config.socket_path)
     socket_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
+    with contextlib.suppress(FileNotFoundError):
         socket_path.unlink()
-    except FileNotFoundError:
-        pass
 
     server_impl = HelperServer(config)
     server = await asyncio.start_unix_server(
@@ -142,10 +141,8 @@ async def _serve(config: HelperConfig) -> None:
 
 def main() -> None:
     config = HelperConfig.from_env()
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_serve(config))
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":
