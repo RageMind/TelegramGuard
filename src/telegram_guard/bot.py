@@ -860,9 +860,20 @@ class BotApp:
         )
 
     async def _show_audit(
-        self, chat_id: int, message_id: int | None = None
+        self,
+        chat_id: int,
+        message_id: int | None = None,
+        page: int = 0,
     ) -> None:
-        rows = self.state.recent_audit(12)
+        page_size = 10
+        total = self.state.audit_count()
+        max_page = max(0, (max(total, 1) - 1) // page_size)
+        page = max(0, min(page, max_page))
+        rows = self.state.audit_page(
+            limit=page_size,
+            offset=page * page_size,
+        )
+
         if not rows:
             body = "🟢 <b>Журнал пока пуст</b>"
         else:
@@ -875,11 +886,12 @@ class BotApp:
                 "error": "!",
                 "helper_error": "!",
                 "cancelled": "−",
+                "attention": "!",
             }
             for row in rows:
                 stamp = dt.datetime.fromtimestamp(
                     int(row["created_at"]), tz=dt.UTC
-                ).strftime("%H:%M")
+                ).strftime("%d.%m %H:%M")
                 action = str(row["action"])
                 outcome = str(row["outcome"])
                 icon = icons.get(outcome, "·")
@@ -890,11 +902,41 @@ class BotApp:
                     f"<code>{_safe(stamp)}</code>  {icon}  "
                     f"{_safe(label)}{target} · <i>{_safe(outcome_label)}</i>"
                 )
-            body = "📝 <b>Последние действия</b>\n\n" + "\n".join(lines)
+            body = (
+                f"📝 <b>Действия {page * page_size + 1}–"
+                f"{page * page_size + len(rows)} из {total}</b>\n\n"
+                + "\n".join(lines)
+            )
+
+        nav: list[dict[str, str]] = []
+        if page > 0:
+            nav.append(
+                {
+                    "text": "← Новее",
+                    "callback_data": f"audit:{page - 1}",
+                }
+            )
+        if page < max_page:
+            nav.append(
+                {
+                    "text": "Старее →",
+                    "callback_data": f"audit:{page + 1}",
+                }
+            )
+
+        keyboard_rows: list[list[dict[str, str]]] = []
+        if nav:
+            keyboard_rows.append(nav)
+        keyboard_rows.append(
+            [
+                {"text": "↻ Обновить", "callback_data": f"audit:{page}"},
+                {"text": "⌂ Главная", "callback_data": "ui:home"},
+            ]
+        )
         await self._show(
             chat_id,
-            _screen("Журнал", body),
-            _back_keyboard("ui:audit"),
+            _screen("Активность", body),
+            {"inline_keyboard": keyboard_rows},
             message_id,
         )
 
@@ -1151,7 +1193,12 @@ class BotApp:
         elif data == "ui:services":
             await self._show_services(chat_id, admin_id, message_id)
         elif data == "ui:audit":
-            await self._show_audit(chat_id, message_id)
+            await self._show_audit(chat_id, message_id, 0)
+        elif data.startswith("audit:"):
+            raw_page = data.split(":", 1)[1]
+            if not raw_page.isdigit():
+                raise ValidationError("invalid audit page")
+            await self._show_audit(chat_id, message_id, int(raw_page))
         elif data == "ui:settings":
             await self._show_settings(chat_id, admin_id, message_id)
         elif data == "ui:selftest":
