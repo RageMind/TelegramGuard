@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from telegram_guard.bot import _ACTION_LABELS, _security_keyboard, _service_token
+from telegram_guard.bot import _ACTION_LABELS, _approval_missing, _security_keyboard, _service_token
 
 
 def test_service_callback_token_is_short_and_stable() -> None:
@@ -39,3 +39,18 @@ def test_security_keyboard_exposes_ssh_2fa_toggle() -> None:
         "callback_data": "ssh2fa:disable",
         "style": "danger",
     }
+
+
+def test_approval_missing_lists_failed_preflight_checks() -> None:
+    missing = _approval_missing(
+        {
+            "pam_file_ok": True,
+            "pam_writable": False,
+            "backup_dir_ready": True,
+            "broker_ready": False,
+            "broker_active": True,
+            "use_pam": False,
+            "pam_exec": True,
+        }
+    )
+    assert missing == ["запись PAM", "approval broker", "UsePAM"]
