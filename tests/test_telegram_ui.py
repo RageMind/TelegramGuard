@@ -44,7 +44,28 @@ def test_dashboard_screen_has_rich_table_and_plain_fallback() -> None:
     )
 
     assert "<table bordered compact>" in view.rich_html
-    assert "<h2>Control Center</h2>" in view.rich_html
+    assert "<p><b>Control Center</b>" in view.rich_html
+    assert "<table compact striped>" in view.rich_html
     assert "<td><b>RAM</b></td>" in view.rich_html
-    assert "<blockquote><b>Control Center</b>" in view.text
+    assert "<b>Control Center</b>" in view.text
     assert "Telegram 2FA" in view.text
+
+
+def test_dashboard_can_pack_metrics_into_two_columns() -> None:
+    view = dashboard_screen(
+        "Control Center",
+        "🟢 NORMAL",
+        [
+            ("RAM", "20%"),
+            ("Disk", "26%"),
+            ("Load", "0.03"),
+            ("SSH", "0 fail"),
+        ],
+        columns=2,
+        details_title="Details",
+        details_text="read-only",
+    )
+
+    assert view.rich_html.count("<tr>") == 2
+    assert "<details><summary>Details</summary>" in view.rich_html
+    assert "<pre>read-only</pre>" in view.rich_html
