@@ -189,15 +189,24 @@ class NftWhitelist:
             "}\n"
         )
 
+    def _apply_entries(self, entries: dict[str, dict[str, Any]]) -> None:
+        existing = self._run(
+            ["list", "table", self.config.nft_family, self.config.nft_table],
+            check=False,
+        )
+        script = self._ruleset(entries)
+        if existing.returncode == 0:
+            script = (
+                f"delete table {self.config.nft_family} "
+                f"{self.config.nft_table}\n" + script
+            )
+        self._run_script(script)
+        self._save_entries(entries)
+
     def ensure(self) -> None:
         self._assert_write_mode()
         entries = self._load_entries()
-        self._run(
-            ["delete", "table", self.config.nft_family, self.config.nft_table],
-            check=False,
-        )
-        self._run_script(self._ruleset(entries))
-        self._save_entries(entries)
+        self._apply_entries(entries)
 
     def seed_permanent(self, ip_value: str, source: str = "bootstrap") -> None:
         self._assert_write_mode()
