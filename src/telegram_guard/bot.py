@@ -226,10 +226,22 @@ class BotApp:
             disk_used = max(disk_total - disk_free, 0)
             ram = _percent(used, total)
             disk = _percent(disk_used, disk_total)
+            firewall = await self.helper.call("firewall.health")
+            firewall_active = (
+                isinstance(firewall, dict)
+                and firewall.get("mode") == "nft"
+                and bool(firewall.get("active"))
+            )
+            firewall_text = (
+                "🟢 SSH whitelist активен"
+                if firewall_active
+                else "🟡 SSH whitelist не активен"
+            )
             body = (
                 "🟢 <b>VPS на связи</b>\n"
                 f"⏱ {_safe(_uptime(int(result.get('uptime_seconds', 0))))}\n"
-                f"RAM <code>{ram}%</code>   ·   Диск <code>{disk}%</code>\n\n"
+                f"RAM <code>{ram}%</code>   ·   Диск <code>{disk}%</code>\n"
+                f"{firewall_text}\n\n"
                 "Выберите раздел. Все опасные действия требуют подтверждения."
             )
         except HelperError:
@@ -262,24 +274,50 @@ class BotApp:
     async def _show_access(
         self, chat_id: int, admin_id: int, message_id: int | None = None
     ) -> None:
+        health = await self.helper.call("firewall.health")
         result = await self.helper.call("firewall.list")
         self.state.audit(admin_id, "firewall.list", "ok")
         raw = str(result)
-        if "unavailable" in raw.lower():
+
+        active = (
+            isinstance(health, dict)
+            and health.get("mode") == "nft"
+            and bool(health.get("active"))
+        )
+        port = (
+            str(health.get("ssh_port"))
+            if isinstance(health, dict)
+            else "—"
+        )
+        entries = (
+            int(health.get("entries", 0))
+            if isinstance(health, dict)
+            else 0
+        )
+
+        if active:
             body = (
-                "🟡 <b>Whitelist ещё не подключён к firewall</b>\n\n"
-                "TelegramGuard установлен безопасно: управление доступом "
-                "не меняет сеть, пока nftables-наборы не включены.\n\n"
-                "<b>Что можно сделать</b>\n"
-                "• подготовить IP к добавлению\n"
-                "• после включения nftables выдавать доступ на ограниченное время"
-            )
-        else:
-            body = (
-                "🟢 <b>Whitelist доступен</b>\n"
-                "Временные разрешения автоматически истекают.\n\n"
+                "🟢 <b>SSH whitelist активен</b>\n"
+                f"Порт: <code>{_safe(port)}</code>\n"
+                f"Доверенных адресов: <b>{entries}</b>\n\n"
+                "Временный доступ истекает автоматически.\n\n"
                 f"{_code(raw, 1900)}"
             )
+        else:
+            mode = (
+                str(health.get("mode", "unknown"))
+                if isinstance(health, dict)
+                else "unknown"
+            )
+            body = (
+                "🟡 <b>SSH whitelist не активен</b>\n"
+                f"Режим: <code>{_safe(mode)}</code>\n"
+                f"SSH-порт: <code>{_safe(port)}</code>\n\n"
+                "На этом сервере TelegramGuard сейчас не ограничивает SSH. "
+                "После повторного запуска установщика из активной SSH-сессии "
+                "текущий IP будет закреплён и managed whitelist включится автоматически."
+            )
+
         await self._show(
             chat_id,
             _screen("Доступ к VPS", body),
@@ -711,7 +749,7 @@ class BotApp:
     ) -> None:
         self.input_modes.pop(admin_id, None)
 
-        if command in {"/start", "/help", "/dashboard", "/menu"}:
+        if command in {"/start", "/help", "/dashboard", "/menu", "/panel"}:
             await self._show_home(chat_id)
             return
         if command == "/status":
