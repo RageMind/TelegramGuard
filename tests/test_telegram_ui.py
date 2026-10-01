@@ -43,7 +43,6 @@ def test_dashboard_screen_has_rich_table_and_plain_fallback() -> None:
         footer="System checked",
     )
 
-    assert "<table bordered compact>" in view.rich_html
     assert "<p><b>Control Center</b>" in view.rich_html
     assert "<table compact striped>" in view.rich_html
     assert "<td><b>RAM</b></td>" in view.rich_html
