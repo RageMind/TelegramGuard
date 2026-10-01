@@ -66,7 +66,7 @@ def test_export_excludes_identity_and_token(tmp_path: Path) -> None:
     )
     bot_env.write_text(
         "TELEGRAM_BOT_TOKEN=secret-token\n"
-        "TELEGRAM_ADMIN_IDS=123456\n"
+        "TELEGRAM_ADMIN_IDS=example-admin\n"
         "ALERT_INTERVAL_SECONDS=60\n",
         encoding="utf-8",
     )
@@ -77,7 +77,7 @@ def test_export_excludes_identity_and_token(tmp_path: Path) -> None:
     assert payload["helper"]["SSH_PORT"] == "22"
     assert payload["bot"]["ALERT_INTERVAL_SECONDS"] == "60"
     assert "secret-token" not in encoded
-    assert "123456" not in encoded
+    assert "example-admin" not in encoded
 
 
 def test_validate_config_reports_invalid_values(tmp_path: Path) -> None:
