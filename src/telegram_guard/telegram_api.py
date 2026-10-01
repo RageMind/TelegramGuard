@@ -171,10 +171,11 @@ class TelegramAPI:
     async def configure_profile(self) -> None:
         commands = [
             {"command": "start", "description": "Открыть Control Center"},
-            {"command": "status", "description": "Состояние VPS"},
+            {"command": "status", "description": "Ресурсы и состояние VPS"},
+            {"command": "doctor", "description": "Диагностика сервера"},
+            {"command": "network", "description": "Сеть и слушающие порты"},
             {"command": "security", "description": "Безопасность и SSH"},
             {"command": "settings", "description": "Настройки TelegramGuard"},
-            {"command": "help", "description": "Открыть панель"},
         ]
         await self._call("setMyCommands", {"commands": commands})
         await self._call(
@@ -194,8 +195,8 @@ class TelegramAPI:
             {
                 "description": (
                     "TelegramGuard by QyAi — приватный Control OS для VPS. "
-                    "Состояние сервера, SSH-защита, доступы, сервисы, "
-                    "уведомления и аудит в одном интерфейсе."
+                    "Состояние сервера, сеть, SSH-защита, доступы, сервисы, "
+                    "диагностика, уведомления и аудит в одном интерфейсе."
                 )
             },
         )
