@@ -109,10 +109,19 @@ class NftWhitelist:
                 if expires_at <= now:
                     continue
 
-            entries[str(address)] = {
+            added_at_raw = raw_meta.get("added_at")
+            try:
+                added_at = int(added_at_raw) if added_at_raw is not None else None
+            except (TypeError, ValueError):
+                added_at = None
+
+            entry: dict[str, Any] = {
                 "expires_at": expires_at,
                 "source": str(raw_meta.get("source", "telegram"))[:32],
             }
+            if added_at is not None and added_at > 0:
+                entry["added_at"] = added_at
+            entries[str(address)] = entry
         return entries
 
     def _save_entries(self, entries: dict[str, dict[str, Any]]) -> None:
@@ -215,6 +224,7 @@ class NftWhitelist:
         entries[str(address)] = {
             "expires_at": None,
             "source": source[:32],
+            "added_at": int(time.time()),
         }
         self._run(
             ["delete", "table", self.config.nft_family, self.config.nft_table],
@@ -266,6 +276,7 @@ class NftWhitelist:
                     "permanent": expires_at is None,
                     "protected": source == "bootstrap",
                     "expires_at": expires_at,
+                    "added_at": meta.get("added_at"),
                     "remaining_seconds": remaining_seconds,
                 }
             )
@@ -284,9 +295,21 @@ class NftWhitelist:
 
         address = parse_ip(ip_value)
         entries = self._load_entries()
+        now = int(time.time())
+        previous = entries.get(str(address))
+        previous_added = (
+            previous.get("added_at")
+            if isinstance(previous, dict)
+            else None
+        )
         entries[str(address)] = {
-            "expires_at": int(time.time()) + ttl_seconds,
+            "expires_at": now + ttl_seconds,
             "source": "telegram",
+            "added_at": (
+                int(previous_added)
+                if isinstance(previous_added, int)
+                else now
+            ),
         }
 
         self._run(
