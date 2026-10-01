@@ -168,7 +168,7 @@ class SshApprovalBroker:
             except TimeoutError:
                 decision = "timeout"
 
-            response = {
+            response: dict[str, object] = {
                 "ok": decision == "approve",
                 "decision": decision,
             }
@@ -183,7 +183,8 @@ class SshApprovalBroker:
             if token:
                 self.pending.pop(token, None)
             if request is not None:
-                await self.on_result(token, request, decision)
+                with contextlib.suppress(Exception):
+                    await self.on_result(token, request, decision)
             writer.close()
             with contextlib.suppress(ConnectionError, BrokenPipeError):
                 await writer.wait_closed()
