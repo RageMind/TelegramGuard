@@ -14,6 +14,23 @@ STATE_FILE: Final = Path("/var/lib/telegram-guard/firewall.json")
 HELPER_SOCKET: Final = Path("/run/telegram-guard/helper.sock")
 
 
+def _resolve_binary(name: str, candidates: tuple[str, ...]) -> str:
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.is_file() and path.stat().st_mode & stat.S_IXUSR:
+            return candidate
+    discovered = shutil.which(name)
+    if discovered:
+        return discovered
+    raise RuntimeError(f"required binary is unavailable: {name}")
+
+
+SYSTEMCTL: Final = _resolve_binary(
+    "systemctl", ("/usr/bin/systemctl", "/bin/systemctl")
+)
+NFT: Final = _resolve_binary("nft", ("/usr/sbin/nft", "/usr/bin/nft"))
+
+
 def _parse_env(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.is_file():
@@ -36,7 +53,7 @@ def _mode(path: Path) -> str:
 
 def _active(unit: str) -> bool:
     result = subprocess.run(
-        ["systemctl", "is-active", "--quiet", unit],
+        [SYSTEMCTL, "is-active", "--quiet", unit],
         check=False,
         capture_output=True,
         text=True,
@@ -47,7 +64,7 @@ def _active(unit: str) -> bool:
 
 def _nft_active(family: str, table: str) -> bool:
     result = subprocess.run(
-        ["nft", "list", "table", family, table],
+        [NFT, "list", "table", family, table],
         check=False,
         capture_output=True,
         text=True,
