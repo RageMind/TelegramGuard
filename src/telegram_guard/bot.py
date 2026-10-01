@@ -493,6 +493,12 @@ class BotApp:
         remaining = item.get("remaining_seconds")
         remaining_value = int(remaining) if isinstance(remaining, int) else None
         source = str(item.get("source", "telegram"))
+        added_raw = item.get("added_at")
+        added_text = "неизвестно"
+        if isinstance(added_raw, int) and added_raw > 0:
+            added_text = dt.datetime.fromtimestamp(
+                added_raw, tz=dt.UTC
+            ).strftime("%Y-%m-%d %H:%MZ")
         if protected:
             entry_type = "bootstrap / защищён"
         elif permanent:
@@ -504,6 +510,7 @@ class BotApp:
             f"<b><code>{_safe(address)}</code></b>\n\n"
             f"Тип: {entry_type}\n"
             f"Осталось: <b>{_safe(_remaining(remaining_value))}</b>\n"
+            f"Добавлен: <code>{_safe(added_text)}</code>\n"
             f"Источник: <code>{_safe(source)}</code>"
         )
 
