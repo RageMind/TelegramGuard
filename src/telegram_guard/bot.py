@@ -207,6 +207,7 @@ _ACTION_LABELS: dict[str, str] = {
     "firewall.snapshot": "Доступ просмотрен",
     "firewall.allow": "Доступ выдан",
     "firewall.extend": "Доступ продлён",
+    "firewall.make_permanent": "Доступ сделан постоянным",
     "firewall.revoke": "Доступ отозван",
     "service.list": "Сервисы просмотрены",
     "service.status": "Сервис проверен",
@@ -526,6 +527,14 @@ class BotApp:
                         "text": "＋1 день",
                         "callback_data": f"extd:{address}",
                     },
+                ]
+            )
+            rows.append(
+                [
+                    {
+                        "text": "∞ Сделать постоянным",
+                        "callback_data": f"perm:{address}",
+                    }
                 ]
             )
         if not protected:
@@ -1053,6 +1062,23 @@ class BotApp:
                     [{"text": "⌂ Главная", "callback_data": "ui:home"}],
                 ]
             }
+        elif action == "firewall.make_permanent":
+            body = (
+                "🟢 <b>Доступ стал постоянным</b>\n"
+                f"IP: <code>{_safe(args['ip'])}</code>\n"
+                "Этот адрес больше не истекает автоматически."
+            )
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Открыть запись",
+                            "callback_data": f"acl:{args['ip']}",
+                        }
+                    ],
+                    [{"text": "⌂ Главная", "callback_data": "ui:home"}],
+                ]
+            }
         elif action == "firewall.revoke":
             removed = bool(result.get("removed")) if isinstance(result, dict) else False
             state = "удалён" if removed else "уже отсутствовал"
@@ -1159,6 +1185,42 @@ class BotApp:
                 "firewall.extend",
                 {"ip": address, "extra_seconds": 86400},
                 f"Продлить доступ для {address} ещё на 1 день?",
+                message_id,
+            )
+        elif data.startswith("perm:"):
+            address = str(parse_ip(data.split(":", 1)[1]))
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Продолжить",
+                            "callback_data": f"permc:{address}",
+                        }
+                    ],
+                    [{"text": "Отмена", "callback_data": f"acl:{address}"}],
+                ]
+            }
+            await self._show(
+                chat_id,
+                _screen(
+                    "Постоянный доступ",
+                    (
+                        "⚠️ <b>Адрес перестанет истекать автоматически.</b>\n\n"
+                        f"IP: <code>{_safe(address)}</code>\n"
+                        "Используйте это только для доверенного стабильного адреса."
+                    ),
+                ),
+                keyboard,
+                message_id,
+            )
+        elif data.startswith("permc:"):
+            address = str(parse_ip(data.split(":", 1)[1]))
+            await self._confirmed_request(
+                chat_id,
+                admin_id,
+                "firewall.make_permanent",
+                {"ip": address},
+                f"Окончательно сделать {address} постоянным?",
                 message_id,
             )
         elif data.startswith("rvk:"):
