@@ -8,6 +8,7 @@ import os
 import pwd
 import socket
 import struct
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ class HelperServer:
 
         response: dict[str, Any]
         request_id: str | None = None
+        action = ""
         try:
             line = await asyncio.wait_for(reader.readline(), timeout=5.0)
             if not line or len(line) > _MAX_REQUEST_BYTES:
@@ -76,11 +78,33 @@ class HelperServer:
                 "ok": False,
                 "error": str(exc)[:240] or "request rejected",
             }
-        except Exception:
+        except OSError as exc:
+            detail = exc.strerror or type(exc).__name__
+            print(
+                f"{BRAND}: helper action {action or '?'} failed: "
+                f"{type(exc).__name__}: {detail}",
+                file=sys.stderr,
+                flush=True,
+            )
             response = {
                 "id": request_id,
                 "ok": False,
-                "error": "internal helper error",
+                "error": f"system operation failed: {detail}"[:240],
+            }
+        except Exception as exc:
+            print(
+                f"{BRAND}: helper action {action or '?'} failed: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+                flush=True,
+            )
+            response = {
+                "id": request_id,
+                "ok": False,
+                "error": (
+                    "unexpected helper failure: "
+                    f"{type(exc).__name__}"
+                )[:240],
             }
 
         wire = (json.dumps(response, separators=(",", ":")) + "\n").encode()
