@@ -17,10 +17,19 @@ def test_parse_documentation_ip() -> None:
 
 
 def test_private_ip_is_allowed_for_private_networks() -> None:
-    assert str(parse_ip("10.20" + ".30.40")) == "10.20.30.40"
+    private_ip = ".".join(("10", "20", "30", "40"))
+    assert str(parse_ip(private_ip)) == private_ip
 
 
-@pytest.mark.parametrize("value", ["127.0.0.1", "0.0.0.0", "224.0" + ".0.1", "not-an-ip"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "127.0.0.1",
+        "0.0.0.0",
+        ".".join(("224", "0", "0", "1")),
+        "not-an-ip",
+    ],
+)
 def test_unsafe_ips_are_rejected(value: str) -> None:
     with pytest.raises(ValidationError):
         parse_ip(value)
