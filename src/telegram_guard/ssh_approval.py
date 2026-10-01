@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import secrets
 import socket
 import struct
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Literal
+from typing import Literal
 
 Decision = Literal["approve", "deny"]
 
@@ -78,10 +80,8 @@ class SshApprovalBroker:
 
     async def start(self) -> None:
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
+        with contextlib.suppress(FileNotFoundError):
             self.socket_path.unlink()
-        except FileNotFoundError:
-            pass
 
         self.server = await asyncio.start_unix_server(
             self._handle_client,
@@ -99,10 +99,8 @@ class SshApprovalBroker:
             if not item.future.done():
                 item.future.set_result("deny")
         self.pending.clear()
-        try:
+        with contextlib.suppress(FileNotFoundError):
             self.socket_path.unlink()
-        except FileNotFoundError:
-            pass
 
     def decide(self, token: str, decision: Decision) -> SshApprovalRequest | None:
         item = self.pending.get(token)
@@ -179,17 +177,13 @@ class SshApprovalBroker:
         except Exception:
             response = {"ok": False, "decision": "error"}
             writer.write((json.dumps(response, separators=(",", ":")) + "\n").encode())
-            try:
+            with contextlib.suppress(ConnectionError, BrokenPipeError):
                 await writer.drain()
-            except (ConnectionError, BrokenPipeError):
-                pass
         finally:
             if token:
                 self.pending.pop(token, None)
             if request is not None:
                 await self.on_result(token, request, decision)
             writer.close()
-            try:
+            with contextlib.suppress(ConnectionError, BrokenPipeError):
                 await writer.wait_closed()
-            except (ConnectionError, BrokenPipeError):
-                pass
