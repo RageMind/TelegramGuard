@@ -116,6 +116,10 @@ class HelperServer:
             address = parse_ip(ip_value)
             extra_seconds = int(args["extra_seconds"])
             return self.firewall.extend(str(address), extra_seconds)
+        if action == "firewall.make_permanent":
+            ip_value = str(args["ip"])
+            address = parse_ip(ip_value)
+            return self.firewall.make_permanent(str(address))
         if action == "firewall.revoke":
             ip_value = str(args["ip"])
             address = parse_ip(ip_value)
