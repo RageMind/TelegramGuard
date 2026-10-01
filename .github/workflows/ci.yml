@@ -11,7 +11,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +29,12 @@ jobs:
       - name: Public safety scan
         run: python scripts/public_safety_scan.py .
 
+      - name: Shell syntax
+        run: bash -n packaging/install.sh packaging/uninstall.sh
+
+      - name: Python compile
+        run: python -m compileall -q src scripts tests
+
       - name: Ruff
         run: ruff check .
 
@@ -37,3 +43,8 @@ jobs:
 
       - name: Tests
         run: pytest -q
+
+      - name: Package wheel smoke
+        run: |
+          python -m pip wheel . --no-deps --wheel-dir /tmp/telegramguard-wheel
+          test -n "$(find /tmp/telegramguard-wheel -maxdepth 1 -name 'qyai_telegramguard-*.whl' -print -quit)"
