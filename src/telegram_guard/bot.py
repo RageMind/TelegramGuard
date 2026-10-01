@@ -23,7 +23,7 @@ from telegram_guard.security import (
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
-from telegram_guard.telegram_ui import button, keyboard
+from telegram_guard.telegram_ui import ButtonStyle, button, keyboard
 from telegram_guard.telegram_ui import screen as _screen
 
 
@@ -1074,7 +1074,9 @@ class BotApp:
         message_id: int | None = None,
     ) -> None:
         token = self.state.create_pending(admin_id, action, args)
-        positive_style = "success" if action == "firewall.allow" else "danger"
+        positive_style: ButtonStyle = (
+            "success" if action == "firewall.allow" else "danger"
+        )
         keyboard_markup = keyboard(
             [
                 button(
