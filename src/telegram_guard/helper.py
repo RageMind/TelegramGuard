@@ -25,6 +25,8 @@ class HelperServer:
         self.config = config
         self.system = SystemController(config)
         self.firewall = NftWhitelist(config)
+        if config.firewall_mode == "nft":
+            self.firewall.ensure()
         self.allowed_uid = pwd.getpwnam(config.allowed_user).pw_uid
 
     def _peer_allowed(self, writer: asyncio.StreamWriter) -> bool:
@@ -95,6 +97,8 @@ class HelperServer:
             if not 1 <= minutes <= 180:
                 raise ValueError("minutes must be between 1 and 180")
             return self.system.ssh_recent(minutes)
+        if action == "firewall.health":
+            return self.firewall.health()
         if action == "firewall.allow":
             ip_value = str(args["ip"])
             address = parse_ip(ip_value)
