@@ -233,6 +233,9 @@ _ACTION_LABELS: dict[str, str] = {
     "ssh.approval.approved": "SSH-вход разрешён",
     "ssh.approval.denied": "SSH-вход отклонён",
     "ssh.approval.timeout": "SSH-вход истёк",
+    "ssh.approval.status": "SSH 2FA проверен",
+    "ssh.approval.enable": "SSH 2FA включён",
+    "ssh.approval.disable": "SSH 2FA отключён",
     "security.summary": "Безопасность проверена",
     "firewall.list": "Whitelist просмотрен",
     "firewall.snapshot": "Доступ просмотрен",
@@ -346,6 +349,16 @@ class BotApp:
             return
         await self.api.edit_message_text(chat_id, message_id, text, reply_markup)
 
+    async def _approval_status(self) -> dict[str, Any]:
+        result = await self.helper.call("ssh.approval.status")
+        if not isinstance(result, dict):
+            raise HelperError("invalid SSH approval status")
+        local = self.ssh_approval.status()
+        status = dict(result)
+        status["pending"] = int(local.get("pending", 0))
+        status["broker_active"] = bool(local.get("active"))
+        return status
+
     async def _show_home(
         self, chat_id: int, message_id: int | None = None
     ) -> None:
@@ -416,7 +429,7 @@ class BotApp:
                 if isinstance(ssh, dict)
                 else 0
             )
-            approval_active = self.config.ssh_approval_enabled
+            approval_active = bool(approval.get("enabled"))
 
             attention = 0
             if not approval_active and not firewall_active:
@@ -715,6 +728,7 @@ class BotApp:
         host = await self.helper.call("host.status")
         health = await self.helper.call("system.health")
         firewall = await self.helper.call("firewall.health")
+        approval = await self._approval_status()
         services = await self.helper.call("service.list")
         ssh = await self.helper.call("ssh.summary", {"minutes": 15})
         if (
@@ -745,7 +759,8 @@ class BotApp:
             firewall.get("mode") == "nft"
             and bool(firewall.get("active"))
         )
-        access_ok = self.config.ssh_approval_enabled or firewall_ok
+        approval_active = bool(approval.get("enabled"))
+        access_ok = approval_active or firewall_ok
         failed_units = int(health.get("failed_unit_count", 0))
         ssh_failed = int(ssh.get("failed", 0))
         reboot = bool(health.get("reboot_required"))
@@ -802,32 +817,141 @@ class BotApp:
     async def _show_access(
         self, chat_id: int, admin_id: int, message_id: int | None = None
     ) -> None:
-        if self.config.ssh_approval_enabled:
-            status = self.ssh_approval.status()
-            body = (
-                "🟢 <b>SSH 2FA · ACTIVE</b>\n"
-                "<code>Пароль/ключ → Telegram → Shell</code>\n\n"
-                f"<b>Timeout</b>   <code>{self.config.ssh_approval_timeout}s</code>\n"
-                f"<b>Pending</b>   <code>{int(status['pending'])}</code>\n\n"
-                "После успешной проверки пароля или ключа вход всё равно "
-                "останавливается до вашего подтверждения в Telegram. "
-                "Секреты в бота не передаются."
-            )
-            await self._show(
-                chat_id,
-                _screen("Доступ к VPS", body),
-                keyboard(
-                    [
-                        button("Обновить", "ui:access"),
-                        button("Безопасность", "ui:security", style="primary"),
-                    ],
-                    [button("Control Center", "ui:home")],
-                ),
-                message_id,
-            )
-            self.state.audit(admin_id, "firewall.snapshot", "ok")
-            return
+        approval = await self._approval_status()
+        snapshot = await self.helper.call("firewall.snapshot")
+        if not isinstance(snapshot, dict):
+            raise HelperError("invalid firewall snapshot")
 
+        enabled = bool(approval.get("enabled"))
+        ready = bool(approval.get("ready"))
+        broker_ready = bool(approval.get("broker_ready"))
+        use_pam = bool(approval.get("use_pam"))
+        pam_exec = bool(approval.get("pam_exec"))
+        pending = int(approval.get("pending", 0))
+
+        firewall_active = (
+            snapshot.get("mode") == "nft"
+            and bool(snapshot.get("active"))
+        )
+        raw_entries = snapshot.get("entries", [])
+        entries = raw_entries if isinstance(raw_entries, list) else []
+
+        if enabled:
+            status = "🟢 TELEGRAM 2FA · ON"
+            note = (
+                "После правильного пароля или SSH-ключа новая сессия "
+                "останавливается до подтверждения в Telegram."
+            )
+        elif ready:
+            status = "🟡 TELEGRAM 2FA · OFF"
+            note = (
+                "Защита готова к включению. Текущая SSH-сессия при "
+                "включении не закрывается."
+            )
+        else:
+            status = "🔴 2FA NOT READY"
+            note = (
+                "Перед включением нужны рабочие PAM, pam_exec и локальный "
+                "approval broker."
+            )
+
+        rows = [
+            ("Telegram 2FA", "ON" if enabled else "OFF"),
+            ("Broker", "ready" if broker_ready else "not ready"),
+            ("PAM", "UsePAM yes" if use_pam else "not ready"),
+            ("pam_exec", "ready" if pam_exec else "missing"),
+            ("Pending", pending),
+            (
+                "IP whitelist",
+                f"ON · {len(entries)} IP"
+                if firewall_active
+                else "OFF",
+            ),
+        ]
+        details = (
+            "1. OpenSSH проверяет логин и пароль/ключ.\n"
+            "2. PAM вызывает TelegramGuard.\n"
+            "3. В Telegram появляется Разрешить / Отклонить.\n"
+            "4. Без разрешения shell не открывается.\n"
+            "5. Таймаут или ошибка broker = отказ во входе."
+        )
+        view = dashboard_screen(
+            "Доступ к VPS",
+            status,
+            rows,
+            note=note,
+            columns=2,
+            details_title="Как работает",
+            details_text=details,
+        )
+
+        keyboard_rows: list[list[dict[str, str]]] = []
+        if enabled:
+            keyboard_rows.append(
+                [
+                    button(
+                        "Отключить Telegram 2FA",
+                        "ssh2fa:disable",
+                        style="danger",
+                    )
+                ]
+            )
+        elif ready:
+            keyboard_rows.append(
+                [
+                    button(
+                        "Включить Telegram 2FA",
+                        "ssh2fa:enable",
+                        style="success",
+                    )
+                ]
+            )
+        else:
+            keyboard_rows.append(
+                [
+                    button(
+                        "Проверить готовность",
+                        "ui:access",
+                        style="primary",
+                    )
+                ]
+            )
+
+        if firewall_active:
+            keyboard_rows.append(
+                [
+                    button("IP whitelist", "ui:accesslist"),
+                    button("Безопасность", "ui:security", style="primary"),
+                ]
+            )
+        else:
+            keyboard_rows.append(
+                [
+                    button("Безопасность", "ui:security", style="primary"),
+                    button("Диагностика", "ui:diagnostics"),
+                ]
+            )
+        keyboard_rows.append(
+            [
+                button("Обновить", "ui:access"),
+                button("Control Center", "ui:home"),
+            ]
+        )
+
+        self.state.audit(admin_id, "ssh.approval.status", "ok")
+        await self._show(
+            chat_id,
+            view,
+            {"inline_keyboard": keyboard_rows},
+            message_id,
+        )
+
+    async def _show_access_list(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+    ) -> None:
         snapshot = await self.helper.call("firewall.snapshot")
         self.state.audit(admin_id, "firewall.snapshot", "ok")
         if not isinstance(snapshot, dict):
@@ -855,7 +979,9 @@ class BotApp:
                 ip_value = str(item.get("ip", ""))
                 protected = bool(item.get("protected"))
                 remaining = item.get("remaining_seconds")
-                remaining_value = int(remaining) if isinstance(remaining, int) else None
+                remaining_value = (
+                    int(remaining) if isinstance(remaining, int) else None
+                )
                 state = "защищён" if protected else _remaining(remaining_value)
                 icon = "🔒" if protected else "⏱"
                 body_lines.append(
@@ -869,30 +995,25 @@ class BotApp:
                         )
                     ]
                 )
-            body = "\n".join(body_lines)
             rows.append(
                 [button("Выдать доступ", "ui:allow", style="success")]
             )
+            body = "\n".join(body_lines)
         else:
-            mode = str(snapshot.get("mode", "unknown"))
             body = (
-                "🟡 <b>SSH PROTECTION · OFF</b>\n\n"
-                f"<b>Mode</b>      <code>{_safe(mode)}</code>\n"
-                f"<b>SSH port</b>  <code>{port or '—'}</code>\n\n"
-                "Сейчас TelegramGuard не ограничивает SSH. "
-                "Включение защиты выполняется локально на VPS, чтобы "
-                "ошибка в Telegram не могла заблокировать аварийный доступ."
+                "🟡 <b>IP whitelist выключен</b>\n\n"
+                "Telegram 2FA работает независимо от этого списка."
             )
 
         rows.append(
             [
-                button("Обновить", "ui:access"),
-                button("Control Center", "ui:home", style="primary"),
+                button("Назад к защите", "ui:access", style="primary"),
+                button("Control Center", "ui:home"),
             ]
         )
         await self._show(
             chat_id,
-            _screen("Доступ к VPS", body),
+            _screen("IP whitelist", body),
             {"inline_keyboard": rows},
             message_id,
         )
@@ -990,6 +1111,7 @@ class BotApp:
         summary = await self.helper.call("ssh.summary", {"minutes": 60})
         sessions = await self.helper.call("host.sessions")
         firewall = await self.helper.call("firewall.health")
+        approval = await self._approval_status()
         if not isinstance(summary, dict) or not isinstance(firewall, dict):
             raise HelperError("invalid security status")
 
@@ -1000,7 +1122,7 @@ class BotApp:
             else len([line for line in raw_sessions.splitlines() if line.strip()])
         )
         firewall_ok = firewall.get("mode") == "nft" and bool(firewall.get("active"))
-        approval_active = self.config.ssh_approval_enabled
+        approval_active = bool(approval.get("enabled"))
         failed = int(summary.get("failed", 0))
         invalid = int(summary.get("invalid_user", 0))
         accepted = int(summary.get("accepted", 0))
@@ -1197,6 +1319,7 @@ class BotApp:
         message_id: int | None = None,
     ) -> None:
         firewall = await self.helper.call("firewall.health")
+        approval = await self._approval_status()
         services = await self.helper.call("service.list")
         if not isinstance(firewall, dict):
             raise HelperError("invalid firewall health")
@@ -1208,7 +1331,7 @@ class BotApp:
         )
         access_mode = (
             "Telegram 2FA"
-            if self.config.ssh_approval_enabled
+            if bool(approval.get("enabled"))
             else "IP whitelist"
             if firewall_active
             else "off"
@@ -1267,12 +1390,16 @@ class BotApp:
                 if isinstance(firewall, dict)
                 else "нет данных"
             )
-            if self.config.ssh_approval_enabled:
-                approval = self.ssh_approval.status()
+            approval = await self._approval_status()
+            if bool(approval.get("enabled")):
+                approval_ok = (
+                    bool(approval.get("ready"))
+                    and bool(approval.get("broker_active"))
+                )
                 checks.append(
                     (
                         "SSH Telegram approval",
-                        bool(approval["active"]),
+                        approval_ok,
                         f"timeout {self.config.ssh_approval_timeout}s",
                     )
                 )
@@ -1503,7 +1630,9 @@ class BotApp:
     ) -> None:
         token = self.state.create_pending(admin_id, action, args)
         positive_style: ButtonStyle = (
-            "success" if action == "firewall.allow" else "danger"
+            "success"
+            if action in {"firewall.allow", "ssh.approval.enable"}
+            else "danger"
         )
         keyboard_markup = keyboard(
             [
@@ -1598,6 +1727,29 @@ class BotApp:
                     [{"text": "⌂ Главная", "callback_data": "ui:home"}],
                 ]
             }
+        elif action == "ssh.approval.enable":
+            active = bool(result.get("enabled")) if isinstance(result, dict) else False
+            if not active:
+                raise HelperError("SSH approval did not activate")
+            body = (
+                "🟢 <b>Telegram 2FA включён</b>\n\n"
+                "Теперь после правильного пароля или SSH-ключа каждый "
+                "новый вход ждёт подтверждения в Telegram."
+            )
+            keyboard = keyboard(
+                [button("Открыть защиту", "ui:access", style="primary")],
+                [button("Control Center", "ui:home")],
+            )
+        elif action == "ssh.approval.disable":
+            body = (
+                "🟡 <b>Telegram 2FA отключён</b>\n\n"
+                "Для новых SSH-сессий снова достаточно обычной "
+                "аутентификации OpenSSH, если другая защита не активна."
+            )
+            keyboard = keyboard(
+                [button("Открыть защиту", "ui:access", style="primary")],
+                [button("Control Center", "ui:home")],
+            )
         elif action == "firewall.revoke":
             removed = bool(result.get("removed")) if isinstance(result, dict) else False
             state = "удалён" if removed else "уже отсутствовал"
@@ -1725,6 +1877,48 @@ class BotApp:
         elif data == "ui:access":
             self.wizard.pop(admin_id, None)
             await self._show_access(chat_id, admin_id, message_id)
+        elif data == "ui:accesslist":
+            self.wizard.pop(admin_id, None)
+            await self._show_access_list(chat_id, admin_id, message_id)
+        elif data == "ssh2fa:enable":
+            approval = await self._approval_status()
+            if bool(approval.get("enabled")):
+                await self._show_access(chat_id, admin_id, message_id)
+            elif not bool(approval.get("ready")):
+                raise ValidationError(
+                    "SSH approval ещё не готов; откройте диагностику"
+                )
+            else:
+                await self._confirmed_request(
+                    chat_id,
+                    admin_id,
+                    "ssh.approval.enable",
+                    {},
+                    (
+                        "Включить Telegram 2FA для SSH? После правильного "
+                        "пароля/ключа каждый новый вход будет ждать вашего "
+                        "подтверждения в Telegram. Текущая SSH-сессия "
+                        "останется открытой."
+                    ),
+                    message_id,
+                )
+        elif data == "ssh2fa:disable":
+            approval = await self._approval_status()
+            if not bool(approval.get("enabled")):
+                await self._show_access(chat_id, admin_id, message_id)
+            else:
+                await self._confirmed_request(
+                    chat_id,
+                    admin_id,
+                    "ssh.approval.disable",
+                    {},
+                    (
+                        "Отключить Telegram 2FA? После этого правильного "
+                        "пароля или SSH-ключа будет достаточно для нового "
+                        "входа, если IP whitelist тоже выключен."
+                    ),
+                    message_id,
+                )
         elif data == "ui:security":
             await self._show_security(chat_id, admin_id, message_id)
         elif data == "ui:sessions":
@@ -2083,7 +2277,9 @@ class BotApp:
                 "ui:events",
                 "ui:updates",
                 "ui:diagnostics",
-            } or data.startswith(("logs:", "audit:", "events:")):
+            } or data.startswith(
+                ("logs:", "audit:", "events:", "ssh2fa:")
+            ):
                 feedback = "Обновляю…"
             elif data.startswith(("confirm:", "ssha:", "sshd:")):
                 feedback = "Выполняю…"
@@ -2291,7 +2487,24 @@ class BotApp:
             return
 
         firewall = await self.helper.call("firewall.health")
-        if isinstance(firewall, dict) and not self.config.ssh_approval_enabled:
+        approval = await self._approval_status()
+        approval_enabled = bool(approval.get("enabled"))
+        approval_ready = (
+            bool(approval.get("ready"))
+            and bool(approval.get("broker_active"))
+        )
+
+        if approval_enabled:
+            await self._set_alert(
+                "ssh-approval",
+                not approval_ready,
+                (
+                    "🔴 Telegram 2FA включён, но approval broker/PAM "
+                    "не готов. Новые входы должны fail-closed."
+                ),
+                "🟢 Telegram 2FA снова полностью готов.",
+            )
+        elif isinstance(firewall, dict):
             firewall_ok = (
                 firewall.get("mode") == "nft"
                 and bool(firewall.get("active"))
@@ -2299,8 +2512,8 @@ class BotApp:
             await self._set_alert(
                 "firewall",
                 not firewall_ok,
-                "🟡 SSH whitelist не находится в активном managed-режиме.",
-                "🟢 Managed SSH whitelist снова активен.",
+                "🟡 SSH сейчас не защищён Telegram 2FA или IP whitelist.",
+                "🟢 SSH-защита снова активна.",
             )
 
         summary = await self.helper.call("ssh.summary", {"minutes": 15})
@@ -2355,8 +2568,7 @@ class BotApp:
         with contextlib.suppress(TelegramAPIError):
             await self.api.configure_profile()
 
-        if self.config.ssh_approval_enabled:
-            await self.ssh_approval.start()
+        await self.ssh_approval.start()
 
         offset: int | None = None
         watchdog_task = asyncio.create_task(self._watchdog())
@@ -2379,8 +2591,7 @@ class BotApp:
                 except Exception:
                     await asyncio.sleep(2)
         finally:
-            if self.config.ssh_approval_enabled:
-                await self.ssh_approval.close()
+            await self.ssh_approval.close()
             watchdog_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await watchdog_task
