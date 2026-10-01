@@ -129,7 +129,7 @@ class HelperConfig:
             raise ConfigError("HELPER_SOCKET must be an absolute path")
 
         firewall_state = os.environ.get(
-            "FIREWALL_STATE", "/var/lib/telegram-guard/firewall.json"
+            "FIREWALL_STATE", "/var/lib/telegram-guard-helper/firewall.json"
         ).strip()
         if not firewall_state.startswith("/"):
             raise ConfigError("FIREWALL_STATE must be an absolute path")
