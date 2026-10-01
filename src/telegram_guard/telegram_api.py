@@ -56,9 +56,25 @@ class TelegramAPI:
     async def send_message(
         self,
         chat_id: int,
-        text: str,
+        text: str | TelegramView,
         reply_markup: dict[str, Any] | None = None,
     ) -> None:
+        if isinstance(text, TelegramView):
+            rich_payload: dict[str, Any] = {
+                "chat_id": chat_id,
+                "rich_message": {
+                    "html": text.rich_html,
+                    "skip_entity_detection": True,
+                },
+            }
+            if reply_markup is not None:
+                rich_payload["reply_markup"] = reply_markup
+            try:
+                await self._call("sendRichMessage", rich_payload)
+                return
+            except TelegramAPIError:
+                text = text.text
+
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
@@ -73,9 +89,28 @@ class TelegramAPI:
         self,
         chat_id: int,
         message_id: int,
-        text: str,
+        text: str | TelegramView,
         reply_markup: dict[str, Any] | None = None,
     ) -> None:
+        if isinstance(text, TelegramView):
+            rich_payload: dict[str, Any] = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "rich_message": {
+                    "html": text.rich_html,
+                    "skip_entity_detection": True,
+                },
+            }
+            if reply_markup is not None:
+                rich_payload["reply_markup"] = reply_markup
+            try:
+                await self._call("editMessageText", rich_payload)
+                return
+            except TelegramAPIError as exc:
+                if "message is not modified" in str(exc).lower():
+                    return
+                text = text.text
+
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
