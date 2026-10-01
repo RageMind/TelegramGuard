@@ -793,6 +793,8 @@ class BotApp:
         enabled = bool(approval.get("enabled"))
         ready = bool(approval.get("ready"))
         broker_ready = bool(approval.get("broker_ready"))
+        broker_active = bool(approval.get("broker_active"))
+        protected_ready = ready and broker_active
         use_pam = bool(approval.get("use_pam"))
         pam_exec = bool(approval.get("pam_exec"))
         pending = int(approval.get("pending", 0))
@@ -804,11 +806,18 @@ class BotApp:
         raw_entries = snapshot.get("entries", [])
         entries = raw_entries if isinstance(raw_entries, list) else []
 
-        if enabled:
+        if enabled and protected_ready:
             status = "🟢 TELEGRAM 2FA · ON"
             note = (
                 "После правильного пароля или SSH-ключа новая сессия "
                 "останавливается до подтверждения в Telegram."
+            )
+        elif enabled:
+            status = "🔴 TELEGRAM 2FA · DEGRADED"
+            note = (
+                "PAM-защита включена, но approval broker не полностью "
+                "готов. Новые SSH-входы должны блокироваться fail-closed. "
+                "Для восстановления можно отключить Telegram 2FA."
             )
         elif ready:
             status = "🟡 TELEGRAM 2FA · OFF"
@@ -825,7 +834,12 @@ class BotApp:
 
         rows: list[tuple[str, object]] = [
             ("Telegram 2FA", "ON" if enabled else "OFF"),
-            ("Broker", "ready" if broker_ready else "not ready"),
+            (
+                "Broker",
+                "ready"
+                if broker_ready and broker_active
+                else "not ready",
+            ),
             ("PAM", "UsePAM yes" if use_pam else "not ready"),
             ("pam_exec", "ready" if pam_exec else "missing"),
             ("Pending", pending),
