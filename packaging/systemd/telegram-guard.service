@@ -1,0 +1,42 @@
+[Unit]
+Description=TelegramGuard bot — QyAi
+Documentation=https://github.com/RageMind/TelegramGuard
+After=network-online.target telegram-guard-helper.service
+Wants=network-online.target
+Requires=telegram-guard-helper.service
+
+[Service]
+Type=simple
+User=telegram-guard
+Group=telegram-guard
+EnvironmentFile=/etc/telegram-guard/bot.env
+ExecStart=/opt/telegram-guard/venv/bin/telegram-guard
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/telegram-guard
+ReadOnlyPaths=/etc/telegram-guard
+
+[Install]
+WantedBy=multi-user.target

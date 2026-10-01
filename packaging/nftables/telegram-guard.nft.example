@@ -1,0 +1,29 @@
+# TelegramGuard — QyAi
+#
+# This file creates ONLY dynamic address sets.
+# It does not change your SSH port, chain policy, or accept/drop order.
+#
+# Review first:
+#   nft -c -f packaging/nftables/telegram-guard.nft.example
+#
+# Apply only when you understand how these sets will be referenced by
+# your existing firewall rules.
+
+table inet telegram_guard {
+    set trusted_ipv4 {
+        type ipv4_addr
+        flags timeout
+    }
+
+    set trusted_ipv6 {
+        type ipv6_addr
+        flags timeout
+    }
+}
+
+# Example integration concept — DO NOT uncomment blindly on a remote VPS:
+#
+# tcp dport <ssh-port> ip saddr @trusted_ipv4 accept
+# tcp dport <ssh-port> ip6 saddr @trusted_ipv6 accept
+#
+# The final drop/reject rule belongs to your own firewall policy.

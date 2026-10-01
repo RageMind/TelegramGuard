@@ -1,0 +1,41 @@
+[Unit]
+Description=TelegramGuard privileged helper — QyAi
+Documentation=https://github.com/RageMind/TelegramGuard
+After=local-fs.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/telegram-guard/helper.env
+ExecStart=/opt/telegram-guard/venv/bin/telegram-guard-helper
+Restart=on-failure
+RestartSec=3s
+RuntimeDirectory=telegram-guard
+RuntimeDirectoryMode=0750
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
+AmbientCapabilities=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+ReadWritePaths=/run/telegram-guard
+ReadOnlyPaths=/etc/telegram-guard /var/log/journal /run/log/journal
+
+[Install]
+WantedBy=multi-user.target
