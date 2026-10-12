@@ -155,7 +155,7 @@ class SshApprovalBroker:
             # Any state-store error fails closed rather than allowing a bypass.
             if self.is_trusted is not None and self.is_trusted(request):
                 decision = "trusted"
-                writer.write((json.dumps({"ok": True, "decision": "approve"}) + "\\n").encode())
+                writer.write((json.dumps({"ok": True, "decision": "approve"}) + "\n").encode())
                 await writer.drain()
                 return
             if len(self.pending) >= _MAX_PENDING:
