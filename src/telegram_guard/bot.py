@@ -5,6 +5,7 @@ import contextlib
 import datetime as dt
 import hashlib
 import html
+import sqlite3
 import sys
 from typing import Any
 
@@ -1919,7 +1920,7 @@ class BotApp:
                     request.user, request.remote_ip, request.service,
                     ttl_seconds, admin_id,
                 )
-            except (ValueError, OSError) as exc:
+            except (ValueError, OSError, sqlite3.Error) as exc:
                 raise ValidationError("не удалось выдать доверие для IP") from exc
             approved = self.ssh_approval.decide(token, "approve")
             if approved is None:
