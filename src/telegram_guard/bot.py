@@ -22,7 +22,7 @@ from telegram_guard.security import (
     validate_unit,
 )
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
-from telegram_guard.ssh_trust import SshTrustStore, SSH_TRUST_CHOICES
+from telegram_guard.ssh_trust import SSH_TRUST_CHOICES, SshTrustStore
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
 from telegram_guard.telegram_ui import (
@@ -361,7 +361,9 @@ class BotApp:
             config.ssh_approval_timeout,
             self._on_ssh_approval_request,
             self._on_ssh_approval_result,
-            is_trusted=lambda req: self.ssh_trust.remaining(req.user, req.remote_ip, req.service) > 0,
+            is_trusted=lambda req: self.ssh_trust.remaining(
+                req.user, req.remote_ip, req.service,
+            ) > 0,
         )
 
     def _is_admin(self, user_id: int) -> bool:
@@ -1948,8 +1950,10 @@ class BotApp:
                         "Обычная SSH-аутентификация продолжает действовать."
                     ),
                 ),
-                keyboard([button("Список и отзыв", "ui:trustlist", style="primary")],
-                         [button("Главная", "ui:home")]),
+                {"inline_keyboard": [
+                    [button("Список и отзыв", "ui:trustlist", style="primary")],
+                    [button("Главная", "ui:home")],
+                ]},
                 message_id,
             )
         elif data.startswith("ssha:"):
@@ -2057,10 +2061,10 @@ class BotApp:
                         f"{_safe(grant['remote_ip'])}</code>"
                     ),
                 ),
-                keyboard(
+                {"inline_keyboard": [
                     [button("Отозвать", f"sshtrc:{identifier}", style="danger")],
                     [button("Отмена", "ui:trustlist")],
-                ),
+                ]},
                 message_id,
             )
         elif data == "ui:accesslist":
