@@ -43,6 +43,7 @@ async def test_trusted_pam_request_automatically_approves_without_notification(
         }) + "\n").encode())
         await writer.drain()
         received = json.loads((await reader.readline()).decode())
+        writer.close()
         await writer.wait_closed()
         assert received == {"ok": True, "decision": "approve"}
         assert notified == []
@@ -83,6 +84,7 @@ async def test_trust_does_not_bypass_other_ssh_user(tmp_path, monkeypatch):
         }) + "\n").encode())
         await writer.drain()
         received = json.loads((await reader.readline()).decode())
+        writer.close()
         await writer.wait_closed()
         assert received == {"ok": False, "decision": "deny"}
         assert len(notified) == 1
