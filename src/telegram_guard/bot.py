@@ -1916,10 +1916,10 @@ class BotApp:
             current = self.ssh_approval.pending.get(token)
             if current is None or current.future.done():
                 raise ValidationError("SSH-запрос уже завершён или истёк")
-            request = current.request
+            trusted_request = current.request
             try:
                 grant = self.ssh_trust.grant(
-                    request.user, request.remote_ip, request.service,
+                    trusted_request.user, trusted_request.remote_ip, trusted_request.service,
                     ttl_seconds, admin_id,
                 )
             except (ValueError, OSError, sqlite3.Error) as exc:
@@ -1929,7 +1929,7 @@ class BotApp:
                 raise ValidationError("SSH-запрос уже завершён")
             self.state.audit(
                 admin_id, "ssh.trust.granted", "confirmed",
-                {"ip": request.remote_ip, "user": request.user,
+                {"ip": trusted_request.remote_ip, "user": trusted_request.user,
                  "ttl_seconds": ttl_seconds, "expires_at": grant["expires_at"]},
             )
             until = dt.datetime.fromtimestamp(
@@ -1941,8 +1941,8 @@ class BotApp:
                     "Доверие выдано",
                     (
                         "🟢 <b>SSH вход разрешён</b>\n"
-                        f"Пользователь: <code>{_safe(request.user)}</code>\n"
-                        f"IP: <code>{_safe(request.remote_ip)}</code>\n"
+                        f"Пользователь: <code>{_safe(trusted_request.user)}</code>\n"
+                        f"IP: <code>{_safe(trusted_request.remote_ip)}</code>\n"
                         f"Срок: <b>{_safe(SSH_TRUST_CHOICES[ttl_seconds])}</b>\n"
                         f"Истекает: <b>{_safe(until)}</b>\n\n"
                         "Следующие входы с этого IP для того же SSH-пользователя "
@@ -2045,11 +2045,11 @@ class BotApp:
             await self._show_trusted_ssh(chat_id, admin_id, message_id)
         elif data.startswith("sshtr:"):
             identifier = data.split(":", 1)[1]
-            grant = next(
+            selected_grant = next(
                 (row for row in self.ssh_trust.listing() if row["id"] == identifier),
                 None,
             )
-            if grant is None:
+            if selected_grant is None:
                 raise ValidationError("доверие уже истекло или удалено")
             await self._show(
                 chat_id,
@@ -2057,8 +2057,8 @@ class BotApp:
                     "Отозвать SSH-доверие?",
                     (
                         "После отзыва следующий вход снова потребует Telegram 2FA.\n"
-                        f"SSH: <code>{_safe(grant['ssh_user'])}@"
-                        f"{_safe(grant['remote_ip'])}</code>"
+                        f"SSH: <code>{_safe(selected_grant['ssh_user'])}@"
+                        f"{_safe(selected_grant['remote_ip'])}</code>"
                     ),
                 ),
                 {"inline_keyboard": [
