@@ -6,7 +6,9 @@ import pytest
 
 from telegram_guard.ssh_approval import parse_request
 from telegram_guard.ssh_trust import (
-    MAX_TRUST_SECONDS, SSH_TRUST_CHOICES, SshTrustStore,
+    MAX_TRUST_SECONDS,
+    SSH_TRUST_CHOICES,
+    SshTrustStore,
 )
 from telegram_guard.state import StateStore
 
