@@ -70,11 +70,13 @@ class SshApprovalBroker:
         timeout_seconds: int,
         on_request: Callable[[str, SshApprovalRequest], Awaitable[None]],
         on_result: Callable[[str, SshApprovalRequest, Decision | str], Awaitable[None]],
+        is_trusted: Callable[[SshApprovalRequest], bool] | None = None,
     ) -> None:
         self.socket_path = Path(socket_path)
         self.timeout_seconds = timeout_seconds
         self.on_request = on_request
         self.on_result = on_result
+        self.is_trusted = is_trusted
         self.pending: dict[str, PendingSshApproval] = {}
         self.server: asyncio.AbstractServer | None = None
 
@@ -144,13 +146,20 @@ class SshApprovalBroker:
         try:
             if not self._peer_is_root(writer):
                 raise PermissionError("approval client must be root")
-            if len(self.pending) >= _MAX_PENDING:
-                raise RuntimeError("too many pending SSH approvals")
-
             line = await asyncio.wait_for(reader.readline(), timeout=3.0)
             if not line or len(line) > _MAX_REQUEST_BYTES:
                 raise ValueError("invalid approval request size")
             request = parse_request(json.loads(line))
+            # Only root clients are allowed to ask. The trusted identity is
+            # checked AFTER OpenSSH authentication via PAM account phase.
+            # Any state-store error fails closed rather than allowing a bypass.
+            if self.is_trusted is not None and self.is_trusted(request):
+                decision = "trusted"
+                writer.write((json.dumps({"ok": True, "decision": "approve"}) + "\n").encode())
+                await writer.drain()
+                return
+            if len(self.pending) >= _MAX_PENDING:
+                raise RuntimeError("too many pending SSH approvals")
             token = secrets.token_urlsafe(9)
             future: asyncio.Future[Decision] = asyncio.get_running_loop().create_future()
             self.pending[token] = PendingSshApproval(

@@ -5,6 +5,7 @@ import contextlib
 import datetime as dt
 import hashlib
 import html
+import sqlite3
 import sys
 from typing import Any
 
@@ -21,6 +22,7 @@ from telegram_guard.security import (
     validate_unit,
 )
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
+from telegram_guard.ssh_trust import SSH_TRUST_CHOICES, SshTrustStore
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
 from telegram_guard.telegram_ui import (
@@ -236,18 +238,11 @@ def _settings_keyboard() -> dict[str, Any]:
 
 def _ttl_keyboard() -> dict[str, Any]:
     return keyboard(
-        [
-            button("15 минут", "ttl:900"),
-            button("1 час", "ttl:3600", style="primary"),
-        ],
-        [
-            button("8 часов", "ttl:28800"),
-            button("1 день", "ttl:86400"),
-        ],
-        [
-            button("7 дней", "ttl:604800"),
-            button("Свой срок", "ttl:custom"),
-        ],
+        [button("15 минут", "ttl:900"), button("1 час", "ttl:3600")],
+        [button("8 часов", "ttl:28800"), button("10 часов", "ttl:36000")],
+        [button("20 часов", "ttl:72000"), button("1 день", "ttl:86400")],
+        [button("2 дня", "ttl:172800"), button("3 дня", "ttl:259200")],
+        [button("7 дней", "ttl:604800"), button("Свой срок", "ttl:custom")],
         [button("Отмена", "ui:access", style="danger")],
     )
 
@@ -261,6 +256,9 @@ _ACTION_LABELS: dict[str, str] = {
     "ssh.recent": "SSH-события просмотрены",
     "ssh.approval.request": "SSH-вход ожидает подтверждения",
     "ssh.approval.approved": "SSH-вход разрешён",
+    "ssh.approval.trusted": "Доверенный SSH-вход",
+    "ssh.trust.granted": "SSH 2FA-доверие выдано",
+    "ssh.trust.revoked": "SSH 2FA-доверие отозвано",
     "ssh.approval.denied": "SSH-вход отклонён",
     "ssh.approval.timeout": "SSH-вход истёк",
     "ssh.approval.status": "SSH 2FA проверен",
@@ -353,6 +351,7 @@ class BotApp:
         self.api = TelegramAPI(config.token)
         self.helper = HelperClient(config.helper_socket)
         self.state = StateStore(config.state_db)
+        self.ssh_trust = SshTrustStore(config.state_db)
         self.rate = RateLimiter(config.rate_limit_per_minute)
         self.input_modes: dict[int, str] = {}
         self.wizard: dict[int, dict[str, Any]] = {}
@@ -362,6 +361,9 @@ class BotApp:
             config.ssh_approval_timeout,
             self._on_ssh_approval_request,
             self._on_ssh_approval_result,
+            is_trusted=lambda req: self.ssh_trust.remaining(
+                req.user, req.remote_ip, req.service,
+            ) > 0,
         )
 
     def _is_admin(self, user_id: int) -> bool:
@@ -387,6 +389,7 @@ class BotApp:
         status = dict(result)
         status["pending"] = int(local.get("pending", 0))
         status["broker_active"] = bool(local.get("active"))
+        status["trusted_entries"] = len(self.ssh_trust.listing())
         return status
 
     async def _show_home(
@@ -891,6 +894,7 @@ class BotApp:
             ("PAM", "UsePAM yes" if use_pam else "not ready"),
             ("pam_exec", "ready" if pam_exec else "missing"),
             ("Pending", pending),
+            ("Trusted SSH", len(self.ssh_trust.listing())),
             (
                 "IP whitelist",
                 f"ON · {len(entries)} IP"
@@ -901,9 +905,9 @@ class BotApp:
         details = (
             "1. OpenSSH проверяет логин и пароль/ключ.\n"
             "2. PAM вызывает TelegramGuard.\n"
-            "3. В Telegram появляется Разрешить / Отклонить.\n"
-            "4. Без разрешения shell не открывается.\n"
-            "5. Таймаут или ошибка broker = отказ во входе."
+            "3. В Telegram можно разрешить вход один раз или на 10–20 часов / 1–7 дней.\n"
+            "4. Для указанного IP + SSH-пользователя действует временное доверие.\n"
+            "5. Пароль/ключ обязателен; ошибка broker = отказ во входе."
         )
         view = dashboard_screen(
             "Доступ к VPS",
@@ -961,6 +965,7 @@ class BotApp:
                     button("Диагностика", "ui:diagnostics"),
                 ]
             )
+        keyboard_rows.append([button("Доверенные SSH IP", "ui:trustlist", style="primary")])
         keyboard_rows.append(
             [
                 button("Обновить", "ui:access"),
@@ -1630,6 +1635,56 @@ class BotApp:
             message_id,
         )
 
+    async def _show_trusted_ssh(
+        self,
+        chat_id: int,
+        admin_id: int,
+        message_id: int | None = None,
+    ) -> None:
+        grants = self.ssh_trust.listing()
+        self.state.audit(admin_id, "ssh.trust.list", "ok", {"count": len(grants)})
+        if grants:
+            lines = [
+                "🟢 <b>Временные исключения Telegram 2FA</b>",
+                "SSH-ключ или пароль по-прежнему обязательны.\n",
+            ]
+            rows: list[list[dict[str, str]]] = []
+            for entry in grants:
+                user = str(entry["ssh_user"])
+                ip = str(entry["remote_ip"])
+                expires = dt.datetime.fromtimestamp(
+                    int(entry["expires_at"]), tz=dt.UTC,
+                ).strftime("%d.%m %H:%M UTC")
+                lines.append(
+                    f"• <code>{_safe(user)}@{_safe(ip)}</code>\n"
+                    f"  осталось {_safe(_remaining(int(entry['remaining_seconds'])))}"
+                    f" · до {_safe(expires)}"
+                )
+                rows.append([
+                    button(
+                        f"Отозвать {user}@{ip}"[:55],
+                        f"sshtr:{entry['id']}",
+                        style="danger",
+                    )
+                ])
+            body = "\n".join(lines)
+            rows.append([button("Обновить", "ui:trustlist"),
+                         button("Назад", "ui:access")])
+            markup = keyboard(*rows)
+        else:
+            body = (
+                "Нет действующих исключений Telegram 2FA.\n\n"
+                "Во время следующего входа выберите в сообщении "
+                "«Разрешить 10 ч», «20 ч», на 1–7 дней или «Разрешить 1 раз»."
+            )
+            markup = keyboard(
+                [button("Обновить", "ui:trustlist")],
+                [button("Назад", "ui:access", style="primary")],
+            )
+        await self._show(
+            chat_id, _screen("Доверенные SSH-подключения", body), markup, message_id,
+        )
+
     async def _show_ttl_choice(
         self,
         chat_id: int,
@@ -1851,7 +1906,57 @@ class BotApp:
     ) -> None:
         self.input_modes.pop(admin_id, None)
 
-        if data.startswith("ssha:"):
+        if data.startswith("ssht:"):
+            pieces = data.split(":")
+            if len(pieces) != 3 or not pieces[2].isdigit():
+                raise ValidationError("неверный срок доверия")
+            token, ttl_seconds = pieces[1], int(pieces[2])
+            if ttl_seconds not in SSH_TRUST_CHOICES:
+                raise ValidationError("недопустимый срок доверия")
+            current = self.ssh_approval.pending.get(token)
+            if current is None or current.future.done():
+                raise ValidationError("SSH-запрос уже завершён или истёк")
+            trusted_request = current.request
+            try:
+                grant = self.ssh_trust.grant(
+                    trusted_request.user, trusted_request.remote_ip, trusted_request.service,
+                    ttl_seconds, admin_id,
+                )
+            except (ValueError, OSError, sqlite3.Error) as exc:
+                raise ValidationError("не удалось выдать доверие для IP") from exc
+            approved = self.ssh_approval.decide(token, "approve")
+            if approved is None:
+                raise ValidationError("SSH-запрос уже завершён")
+            self.state.audit(
+                admin_id, "ssh.trust.granted", "confirmed",
+                {"ip": trusted_request.remote_ip, "user": trusted_request.user,
+                 "ttl_seconds": ttl_seconds, "expires_at": grant["expires_at"]},
+            )
+            until = dt.datetime.fromtimestamp(
+                int(grant["expires_at"]), tz=dt.UTC,
+            ).strftime("%d.%m.%Y %H:%M UTC")
+            await self._show(
+                chat_id,
+                _screen(
+                    "Доверие выдано",
+                    (
+                        "🟢 <b>SSH вход разрешён</b>\n"
+                        f"Пользователь: <code>{_safe(trusted_request.user)}</code>\n"
+                        f"IP: <code>{_safe(trusted_request.remote_ip)}</code>\n"
+                        f"Срок: <b>{_safe(SSH_TRUST_CHOICES[ttl_seconds])}</b>\n"
+                        f"Истекает: <b>{_safe(until)}</b>\n\n"
+                        "Следующие входы с этого IP для того же SSH-пользователя "
+                        "не требуют Telegram-подтверждения до окончания срока. "
+                        "Обычная SSH-аутентификация продолжает действовать."
+                    ),
+                ),
+                {"inline_keyboard": [
+                    [button("Список и отзыв", "ui:trustlist", style="primary")],
+                    [button("Главная", "ui:home")],
+                ]},
+                message_id,
+            )
+        elif data.startswith("ssha:"):
             token = data.split(":", 1)[1]
             request = self.ssh_approval.decide(token, "approve")
             if request is None:
@@ -1923,6 +2028,45 @@ class BotApp:
         elif data == "ui:access":
             self.wizard.pop(admin_id, None)
             await self._show_access(chat_id, admin_id, message_id)
+        elif data == "ui:trustlist":
+            await self._show_trusted_ssh(chat_id, admin_id, message_id)
+        elif data.startswith("sshtrc:"):
+            identifier = data.split(":", 1)[1]
+            try:
+                revoked = self.ssh_trust.revoke(identifier)
+            except ValueError as exc:
+                raise ValidationError("некорректное доверенное исключение") from exc
+            if revoked is None:
+                raise ValidationError("доверие уже истекло или было удалено")
+            self.state.audit(
+                admin_id, "ssh.trust.revoked", "confirmed",
+                {"ip": revoked["remote_ip"], "user": revoked["ssh_user"]},
+            )
+            await self._show_trusted_ssh(chat_id, admin_id, message_id)
+        elif data.startswith("sshtr:"):
+            identifier = data.split(":", 1)[1]
+            selected_grant = next(
+                (row for row in self.ssh_trust.listing() if row["id"] == identifier),
+                None,
+            )
+            if selected_grant is None:
+                raise ValidationError("доверие уже истекло или удалено")
+            await self._show(
+                chat_id,
+                _screen(
+                    "Отозвать SSH-доверие?",
+                    (
+                        "После отзыва следующий вход снова потребует Telegram 2FA.\n"
+                        f"SSH: <code>{_safe(selected_grant['ssh_user'])}@"
+                        f"{_safe(selected_grant['remote_ip'])}</code>"
+                    ),
+                ),
+                {"inline_keyboard": [
+                    [button("Отозвать", f"sshtrc:{identifier}", style="danger")],
+                    [button("Отмена", "ui:trustlist")],
+                ]},
+                message_id,
+            )
         elif data == "ui:accesslist":
             self.wizard.pop(admin_id, None)
             await self._show_access_list(chat_id, admin_id, message_id)
@@ -2329,7 +2473,7 @@ class BotApp:
                 ("logs:", "audit:", "events:", "ssh2fa:")
             ):
                 feedback = "Обновляю…"
-            elif data.startswith(("confirm:", "ssha:", "sshd:")):
+            elif data.startswith(("confirm:", "ssha:", "sshd:", "ssht:", "sshtrc:")):
                 feedback = "Выполняю…"
             await self.api.answer_callback(callback_id, feedback)
             try:
@@ -2434,17 +2578,15 @@ class BotApp:
         )
         keyboard_markup = keyboard(
             [
-                button(
-                    "Разрешить вход",
-                    f"ssha:{token}",
-                    style="success",
-                ),
-                button(
-                    "Отклонить",
-                    f"sshd:{token}",
-                    style="danger",
-                ),
-            ]
+                button("Разрешить 1 раз", f"ssha:{token}", style="success"),
+                button("Отклонить", f"sshd:{token}", style="danger"),
+            ],
+            [button("Разрешить 10 ч", f"ssht:{token}:36000"),
+             button("Разрешить 20 ч", f"ssht:{token}:72000")],
+            [button("Разрешить 1 день", f"ssht:{token}:86400"),
+             button("Разрешить 2 дня", f"ssht:{token}:172800")],
+            [button("Разрешить 3 дня", f"ssht:{token}:259200"),
+             button("Разрешить 7 дней", f"ssht:{token}:604800")],
         )
         delivered = 0
         for admin_id in self.config.admin_ids:
@@ -2466,7 +2608,10 @@ class BotApp:
         request: SshApprovalRequest,
         decision: str,
     ) -> None:
-        if decision == "timeout":
+        if decision == "trusted":
+            self.state.audit(0, "ssh.approval.trusted", "confirmed",
+                             {"ip": request.remote_ip, "user": request.user})
+        elif decision == "timeout":
             self.state.audit(
                 0,
                 "ssh.approval.timeout",
