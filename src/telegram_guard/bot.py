@@ -21,6 +21,7 @@ from telegram_guard.security import (
     validate_unit,
 )
 from telegram_guard.ssh_approval import SshApprovalBroker, SshApprovalRequest
+from telegram_guard.ssh_trust import SshTrustStore, SSH_TRUST_CHOICES
 from telegram_guard.state import StateStore
 from telegram_guard.telegram_api import TelegramAPI, TelegramAPIError
 from telegram_guard.telegram_ui import (
@@ -236,18 +237,11 @@ def _settings_keyboard() -> dict[str, Any]:
 
 def _ttl_keyboard() -> dict[str, Any]:
     return keyboard(
-        [
-            button("15 минут", "ttl:900"),
-            button("1 час", "ttl:3600", style="primary"),
-        ],
-        [
-            button("8 часов", "ttl:28800"),
-            button("1 день", "ttl:86400"),
-        ],
-        [
-            button("7 дней", "ttl:604800"),
-            button("Свой срок", "ttl:custom"),
-        ],
+        [button("15 минут", "ttl:900"), button("1 час", "ttl:3600")],
+        [button("8 часов", "ttl:28800"), button("10 часов", "ttl:36000")],
+        [button("20 часов", "ttl:72000"), button("1 день", "ttl:86400")],
+        [button("2 дня", "ttl:172800"), button("3 дня", "ttl:259200")],
+        [button("7 дней", "ttl:604800"), button("Свой срок", "ttl:custom")],
         [button("Отмена", "ui:access", style="danger")],
     )
 
@@ -261,6 +255,9 @@ _ACTION_LABELS: dict[str, str] = {
     "ssh.recent": "SSH-события просмотрены",
     "ssh.approval.request": "SSH-вход ожидает подтверждения",
     "ssh.approval.approved": "SSH-вход разрешён",
+    "ssh.approval.trusted": "Доверенный SSH-вход",
+    "ssh.trust.granted": "SSH 2FA-доверие выдано",
+    "ssh.trust.revoked": "SSH 2FA-доверие отозвано",
     "ssh.approval.denied": "SSH-вход отклонён",
     "ssh.approval.timeout": "SSH-вход истёк",
     "ssh.approval.status": "SSH 2FA проверен",
@@ -353,6 +350,7 @@ class BotApp:
         self.api = TelegramAPI(config.token)
         self.helper = HelperClient(config.helper_socket)
         self.state = StateStore(config.state_db)
+        self.ssh_trust = SshTrustStore(config.state_db)
         self.rate = RateLimiter(config.rate_limit_per_minute)
         self.input_modes: dict[int, str] = {}
         self.wizard: dict[int, dict[str, Any]] = {}
@@ -362,6 +360,7 @@ class BotApp:
             config.ssh_approval_timeout,
             self._on_ssh_approval_request,
             self._on_ssh_approval_result,
+            is_trusted=lambda req: self.ssh_trust.remaining(req.user, req.remote_ip, req.service) > 0,
         )
 
     def _is_admin(self, user_id: int) -> bool:
@@ -387,6 +386,7 @@ class BotApp:
         status = dict(result)
         status["pending"] = int(local.get("pending", 0))
         status["broker_active"] = bool(local.get("active"))
+        status["trusted_entries"] = len(self.ssh_trust.listing())
         return status
 
     async def _show_home(
@@ -891,6 +891,7 @@ class BotApp:
             ("PAM", "UsePAM yes" if use_pam else "not ready"),
             ("pam_exec", "ready" if pam_exec else "missing"),
             ("Pending", pending),
+            ("Trusted SSH", len(self.ssh_trust.listing())),
             (
                 "IP whitelist",
                 f"ON · {len(entries)} IP"
@@ -961,6 +962,7 @@ class BotApp:
                     button("Диагностика", "ui:diagnostics"),
                 ]
             )
+        keyboard_rows.append([button("Доверенные SSH IP", "ui:trustlist", style="primary")])
         keyboard_rows.append(
             [
                 button("Обновить", "ui:access"),
@@ -2434,17 +2436,15 @@ class BotApp:
         )
         keyboard_markup = keyboard(
             [
-                button(
-                    "Разрешить вход",
-                    f"ssha:{token}",
-                    style="success",
-                ),
-                button(
-                    "Отклонить",
-                    f"sshd:{token}",
-                    style="danger",
-                ),
-            ]
+                button("Разрешить 1 раз", f"ssha:{token}", style="success"),
+                button("Отклонить", f"sshd:{token}", style="danger"),
+            ],
+            [button("Разрешить 10 ч", f"ssht:{token}:36000"),
+             button("Разрешить 20 ч", f"ssht:{token}:72000")],
+            [button("Разрешить 1 день", f"ssht:{token}:86400"),
+             button("Разрешить 2 дня", f"ssht:{token}:172800")],
+            [button("Разрешить 3 дня", f"ssht:{token}:259200"),
+             button("Разрешить 7 дней", f"ssht:{token}:604800")],
         )
         delivered = 0
         for admin_id in self.config.admin_ids:
@@ -2466,7 +2466,10 @@ class BotApp:
         request: SshApprovalRequest,
         decision: str,
     ) -> None:
-        if decision == "timeout":
+        if decision == "trusted":
+            self.state.audit(0, "ssh.approval.trusted", "confirmed",
+                             {"ip": request.remote_ip, "user": request.user})
+        elif decision == "timeout":
             self.state.audit(
                 0,
                 "ssh.approval.timeout",
