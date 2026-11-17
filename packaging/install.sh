@@ -28,7 +28,7 @@ NEED_PACKAGES=0
 command -v python3 >/dev/null 2>&1 || NEED_PACKAGES=1
 command -v nft >/dev/null 2>&1 || NEED_PACKAGES=1
 
-if [[ "${NEED_PACKAGES}" -eq 1 ]] || ! python3 -m venv --help >/dev/null 2>&1; then
+if [[ "${NEED_PACKAGES}" -eq 1 ]] || ! python3 -m venv --help >/dev/null 2>&1 || ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
   if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
@@ -62,6 +62,12 @@ if [[ -s "${LEGACY_FIREWALL_STATE}" && ! -e "${FIREWALL_STATE}" ]]; then
   install -m 0600 -o root -g root "${LEGACY_FIREWALL_STATE}" "${FIREWALL_STATE}"
 fi
 
+# An interrupted venv creation may leave a directory without a functional
+# Python interpreter or pip. Preserve it for inspection and recreate safely.
+if [[ -d "${INSTALL_ROOT}/venv" ]] && { [[ ! -x "${INSTALL_ROOT}/venv/bin/python" ]] ||
+  ! "${INSTALL_ROOT}/venv/bin/python" -m pip --version >/dev/null 2>&1; }; then
+  mv "${INSTALL_ROOT}/venv" "${INSTALL_ROOT}/venv.incomplete.$(date +%Y%m%d-%H%M%S)"
+fi
 if [[ ! -d "${INSTALL_ROOT}/venv" ]]; then
   python3 -m venv "${INSTALL_ROOT}/venv"
 fi
