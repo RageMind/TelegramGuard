@@ -182,6 +182,15 @@ class NftWhitelist:
             self._elements(entries, 6),
         )
         port = self.config.ssh_port
+        rdp_rules = ""
+        if self.config.rdp_whitelist_enabled:
+            rdp_rules = (
+                f"        tcp dport 3389 ip saddr @{self.config.nft_ipv4_set} "
+                "meta mark set meta mark | 0x40000000 accept\n"
+                f"        tcp dport 3389 ip6 saddr @{self.config.nft_ipv6_set} "
+                "meta mark set meta mark | 0x40000000 accept\n"
+                "        tcp dport 3389 drop\n"
+            )
 
         return (
             f"table inet {self.config.nft_table} {{\n"
@@ -189,6 +198,7 @@ class NftWhitelist:
             f"{ipv6}\n\n"
             "    chain ssh_guard {\n"
             "        type filter hook input priority -150; policy accept;\n"
+            f"{rdp_rules}"
             "        ct state established,related accept\n"
             "        iifname \"lo\" accept\n"
             f"        tcp dport {port} ip saddr @{self.config.nft_ipv4_set} accept\n"
@@ -226,12 +236,7 @@ class NftWhitelist:
             "source": source[:32],
             "added_at": int(time.time()),
         }
-        self._run(
-            ["delete", "table", self.config.nft_family, self.config.nft_table],
-            check=False,
-        )
-        self._run_script(self._ruleset(entries))
-        self._save_entries(entries)
+        self._apply_entries(entries)
 
     def health(self) -> dict[str, Any]:
         if self.config.firewall_mode != "nft":
@@ -312,12 +317,7 @@ class NftWhitelist:
             ),
         }
 
-        self._run(
-            ["delete", "table", self.config.nft_family, self.config.nft_table],
-            check=False,
-        )
-        self._run_script(self._ruleset(entries))
-        self._save_entries(entries)
+        self._apply_entries(entries)
 
         return {
             "ip": str(address),
@@ -347,12 +347,7 @@ class NftWhitelist:
         existing["expires_at"] = new_expiry
         existing["source"] = str(existing.get("source", "telegram"))
 
-        self._run(
-            ["delete", "table", self.config.nft_family, self.config.nft_table],
-            check=False,
-        )
-        self._run_script(self._ruleset(entries))
-        self._save_entries(entries)
+        self._apply_entries(entries)
 
         return {
             "ip": str(address),
@@ -395,12 +390,7 @@ class NftWhitelist:
             )
         removed = entries.pop(str(address), None) is not None
 
-        self._run(
-            ["delete", "table", self.config.nft_family, self.config.nft_table],
-            check=False,
-        )
-        self._run_script(self._ruleset(entries))
-        self._save_entries(entries)
+        self._apply_entries(entries)
 
         return {
             "ip": str(address),

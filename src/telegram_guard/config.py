@@ -157,6 +157,7 @@ class HelperConfig:
     nft_ipv6_set: str
     managed_services: tuple[str, ...]
     ssh_journal_unit: str
+    rdp_whitelist_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> HelperConfig:
@@ -199,4 +200,5 @@ class HelperConfig:
                 "MANAGED_SERVICES", "ssh.service"
             ),
             ssh_journal_unit=_identifier("SSH_JOURNAL_UNIT", "ssh.service"),
+            rdp_whitelist_enabled=_bool("RDP_WHITELIST_ENABLED", False),
         )

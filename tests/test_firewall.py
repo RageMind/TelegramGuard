@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -168,3 +169,18 @@ def test_make_permanent_converts_temporary_entry(
     assert result["permanent"] is True
     assert entries["203.0.113.42"]["expires_at"] is None
     assert entries["203.0.113.42"]["source"] == "telegram-permanent"
+
+
+def test_rdp_is_opt_in_and_checks_every_packet_before_established(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    firewall = controller(tmp_path, monkeypatch)
+    assert "3389" not in firewall._ruleset({})
+    firewall.config = replace(firewall.config, rdp_whitelist_enabled=True)
+    ruleset = firewall._ruleset({})
+    assert "tcp dport 3389 ip saddr @trusted_ipv4" in ruleset
+    assert "tcp dport 3389 ip6 saddr @trusted_ipv6" in ruleset
+    assert ruleset.count("meta mark set meta mark | 0x40000000 accept") == 2
+    assert ruleset.index("tcp dport 3389 drop") < ruleset.index("ct state established")
+    assert "tcp dport 22" in ruleset
