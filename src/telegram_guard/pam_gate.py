@@ -36,9 +36,15 @@ def _pam_request() -> dict[str, object]:
         raise ValueError("invalid PAM user")
 
     remote_raw = os.environ.get("PAM_RHOST", "").strip()
-    if not remote_raw:
+    if not remote_raw and service == "xrdp-sesman":
+        # XRDP 0.9.x does not set PAM_RHOST. The independent network
+        # whitelist still controls ingress; require one-time approval and
+        # report the missing address honestly, never synthesize an IP.
+        remote_ip = "unknown (XRDP)"
+    elif not remote_raw:
         raise ValueError("missing remote host")
-    remote_ip = str(ipaddress.ip_address(remote_raw))
+    else:
+        remote_ip = str(ipaddress.ip_address(remote_raw))
 
     tty = os.environ.get("PAM_TTY", "").strip()[:96] or "unknown"
     return {
