@@ -67,3 +67,12 @@ async def test_broker_decision_resolves_future(tmp_path) -> None:
     request = broker.decide("token", "approve")
     assert request is not None
     assert await future == "approve"
+
+
+def test_rdp_approval_request_and_unknown_service():
+    payload = dict(version=1, user="desktop", remote_ip="203.0.113.42",
+                   service="xrdp-sesman", tty="xrdp-sesman")
+    assert parse_request(payload).service == "xrdp-sesman"
+    payload["service"] = "sudo"
+    with pytest.raises(ValueError):
+        parse_request(payload)

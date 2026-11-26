@@ -25,3 +25,15 @@ def test_pam_request_rejects_wrong_phase(monkeypatch: pytest.MonkeyPatch) -> Non
 
     with pytest.raises(ValueError):
         _pam_request()
+
+
+@pytest.mark.parametrize("service", ["sshd", "xrdp-sesman"])
+def test_supported_remote_account_services(monkeypatch, service):
+    monkeypatch.setenv("PAM_TYPE", "account")
+    monkeypatch.setenv("PAM_SERVICE", service)
+    monkeypatch.setenv("PAM_USER", "desktop")
+    monkeypatch.setenv("PAM_RHOST", "203.0.113.42")
+    assert _pam_request()["service"] == service
+    monkeypatch.setenv("PAM_SERVICE", "sudo")
+    with pytest.raises(ValueError):
+        _pam_request()

@@ -52,6 +52,8 @@ def parse_request(payload: object) -> SshApprovalRequest:
     user = _clean_text(payload.get("user", ""), limit=64)
     remote_ip = _clean_text(payload.get("remote_ip", ""), limit=64)
     service = _clean_text(payload.get("service", ""), limit=32)
+    if service not in {"sshd", "xrdp-sesman"}:
+        raise ValueError("unsupported approval service")
     tty_raw = str(payload.get("tty", "")).strip()
     tty = tty_raw[:96] if tty_raw else "unknown"
     return SshApprovalRequest(

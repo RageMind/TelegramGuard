@@ -361,7 +361,7 @@ class BotApp:
             config.ssh_approval_timeout,
             self._on_ssh_approval_request,
             self._on_ssh_approval_result,
-            is_trusted=lambda req: self.ssh_trust.remaining(
+            is_trusted=lambda req: not self.config.strict_login_approval and req.service == "sshd" and self.ssh_trust.remaining(
                 req.user, req.remote_ip, req.service,
             ) > 0,
         )
@@ -909,6 +909,18 @@ class BotApp:
             "4. Для указанного IP + SSH-пользователя действует временное доверие.\n"
             "5. Пароль/ключ обязателен; ошибка broker = отказ во входе."
         )
+        if self.config.strict_login_approval:
+            rows = [
+                (key, value) for key, value in rows if key != "Trusted SSH"
+            ]
+            rows.append(("RDP 2FA", "PAM ON" if approval.get("rdp_enabled") else "OFF"))
+            details = (
+                "Общий IP whitelist для SSH и RDP. "
+                "Пароль/ключ и отдельное подтверждение каждого нового PAM-входа обязательны. "
+                "Временные исключения 2FA не действуют. "
+                "IP вне whitelist блокируется до аутентификации."
+            )
+            note = "Строгий режим. Изменение политики только локально."
         view = dashboard_screen(
             "Доступ к VPS",
             status,
@@ -920,7 +932,9 @@ class BotApp:
         )
 
         keyboard_rows: list[list[dict[str, str]]] = []
-        if enabled:
+        if self.config.strict_login_approval:
+            pass
+        elif enabled:
             keyboard_rows.append(
                 [
                     button(
@@ -965,7 +979,8 @@ class BotApp:
                     button("Диагностика", "ui:diagnostics"),
                 ]
             )
-        keyboard_rows.append([button("Доверенные SSH IP", "ui:trustlist", style="primary")])
+        if not self.config.strict_login_approval:
+            keyboard_rows.append([button("Доверенные SSH IP", "ui:trustlist", style="primary")])
         keyboard_rows.append(
             [
                 button("Обновить", "ui:access"),
@@ -1907,6 +1922,8 @@ class BotApp:
         self.input_modes.pop(admin_id, None)
 
         if data.startswith("ssht:"):
+            if self.config.strict_login_approval:
+                raise ValidationError("Каждый вход требует отдельного подтверждения")
             pieces = data.split(":")
             if len(pieces) != 3 or not pieces[2].isdigit():
                 raise ValidationError("неверный срок доверия")
@@ -1970,7 +1987,7 @@ class BotApp:
             await self._show(
                 chat_id,
                 _screen(
-                    "SSH вход разрешён",
+                    "RDP вход разрешён" if request.service == "xrdp-sesman" else "SSH вход разрешён",
                     (
                         "🟢 <b>Сессия может продолжить вход</b>\n\n"
                         f"Пользователь: <code>{_safe(request.user)}</code>\n"
@@ -1994,7 +2011,7 @@ class BotApp:
             await self._show(
                 chat_id,
                 _screen(
-                    "SSH вход отклонён",
+                    "RDP вход отклонён" if request.service == "xrdp-sesman" else "SSH вход отклонён",
                     (
                         "🔴 <b>Сессия не получит доступ</b>\n\n"
                         f"Пользователь: <code>{_safe(request.user)}</code>\n"
@@ -2095,6 +2112,8 @@ class BotApp:
                     message_id,
                 )
         elif data == "ssh2fa:disable":
+            if self.config.strict_login_approval:
+                raise ValidationError("Строгий режим: отключение только локально")
             approval = await self._approval_status()
             if not bool(approval.get("enabled")):
                 await self._show_access(chat_id, admin_id, message_id)
@@ -2569,8 +2588,8 @@ class BotApp:
             {"ip": request.remote_ip, "user": request.user},
         )
         body = (
-            "🟡 <b>SSH SIGN-IN WAITING</b>\n"
-            "Первичная аутентификация уже успешна. Shell ещё не открыт.\n\n"
+            f"🟡 <b>{'RDP' if request.service == 'xrdp-sesman' else 'SSH'} SIGN-IN WAITING</b>\n"
+            "Первичная аутентификация уже успешна. Доступ ещё не открыт.\n\n"
             f"<b>User</b>  <code>{_safe(request.user)}</code>\n"
             f"<b>IP</b>    <code>{_safe(request.remote_ip)}</code>\n"
             f"<b>TTY</b>   <code>{_safe(request.tty)}</code>\n"
@@ -2588,12 +2607,17 @@ class BotApp:
             [button("Разрешить 3 дня", f"ssht:{token}:259200"),
              button("Разрешить 7 дней", f"ssht:{token}:604800")],
         )
+        if self.config.strict_login_approval or request.service == "xrdp-sesman":
+            keyboard_markup = keyboard([
+                button("Разрешить 1 раз", f"ssha:{token}", style="success"),
+                button("Отклонить", f"sshd:{token}", style="danger"),
+            ])
         delivered = 0
         for admin_id in self.config.admin_ids:
             try:
                 await self.api.send_message(
                     admin_id,
-                    _screen("SSH Access Gate", body),
+                    _screen("RDP Access Gate" if request.service == "xrdp-sesman" else "SSH Access Gate", body),
                     keyboard_markup,
                 )
                 delivered += 1

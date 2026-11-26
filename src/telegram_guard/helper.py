@@ -138,10 +138,17 @@ class HelperServer:
                 raise ValueError("minutes must be between 1 and 1440")
             return self.system.ssh_summary(minutes)
         if action == "ssh.approval.status":
-            return self.ssh_approval.status()
+            status = self.ssh_approval.status()
+            try:
+                status["rdp_enabled"] = "account required pam_exec.so quiet seteuid /opt/telegram-guard/venv/bin/telegram-guard-pam" in Path("/etc/pam.d/xrdp-sesman").read_text()
+            except OSError:
+                status["rdp_enabled"] = False
+            return status
         if action == "ssh.approval.enable":
             return self.ssh_approval.enable()
         if action == "ssh.approval.disable":
+            if Path("/etc/telegram-guard/strict-access").exists():
+                raise PermissionError("strict access can only be changed locally")
             return self.ssh_approval.disable()
         if action == "firewall.health":
             return self.firewall.health()

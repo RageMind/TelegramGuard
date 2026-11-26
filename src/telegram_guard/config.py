@@ -92,6 +92,7 @@ class BotConfig:
     ssh_approval_timeout: int
     state_db: str
     helper_socket: str
+    strict_login_approval: bool = False
 
     @classmethod
     def from_env(cls) -> BotConfig:
@@ -140,6 +141,7 @@ class BotConfig:
             ),
             state_db=state_db,
             helper_socket=helper_socket,
+            strict_login_approval=_bool("STRICT_LOGIN_APPROVAL", False),
         )
 
 

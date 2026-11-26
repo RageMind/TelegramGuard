@@ -27,7 +27,8 @@ def _setting(name: str, default: str) -> str:
 def _pam_request() -> dict[str, object]:
     if os.environ.get("PAM_TYPE") != "account":
         raise ValueError("unsupported PAM phase")
-    if os.environ.get("PAM_SERVICE") != "sshd":
+    service = os.environ.get("PAM_SERVICE")
+    if service not in {"sshd", "xrdp-sesman"}:
         raise ValueError("unsupported PAM service")
 
     user = os.environ.get("PAM_USER", "").strip()
@@ -44,7 +45,7 @@ def _pam_request() -> dict[str, object]:
         "version": 1,
         "user": user,
         "remote_ip": remote_ip,
-        "service": "sshd",
+        "service": service,
         "tty": tty,
     }
 
