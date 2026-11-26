@@ -112,19 +112,7 @@ if ! grep -Fq "${PAM_BEGIN}" "${PAM_FILE}"; then
   } >>"${PAM_FILE}"
 fi
 
-if [[ -x /usr/local/sbin/telegram-guard-firewall-off ]]; then
-  /usr/local/sbin/telegram-guard-firewall-off
-else
-  nft delete table inet telegram_guard 2>/dev/null || true
-  if [[ -f /etc/telegram-guard/helper.env ]]; then
-    if grep -q '^FIREWALL_MODE=' /etc/telegram-guard/helper.env; then
-      sed -i 's/^FIREWALL_MODE=.*/FIREWALL_MODE=observe/'         /etc/telegram-guard/helper.env
-    else
-      echo 'FIREWALL_MODE=observe' >>/etc/telegram-guard/helper.env
-    fi
-    systemctl restart telegram-guard-helper.service
-  fi
-fi
+# The IP whitelist is independent of PAM and must remain in force.
 
 if ! systemctl is-active --quiet telegram-guard.service; then
   echo "TelegramGuard bot is not active after SSH approval activation." >&2
