@@ -35,7 +35,7 @@ class SshTrustStore:
         with self._connect() as conn:
             conn.executescript(
                 """
-                CREATE TABLE IF NOT EXISTS ssh_trusted_access (
+                CREATE TABLE IF NOT EXISTS unified_trusted_access (
                     id TEXT PRIMARY KEY,
                     ssh_user TEXT NOT NULL,
                     remote_ip TEXT NOT NULL,
@@ -45,8 +45,8 @@ class SshTrustStore:
                     granted_by INTEGER NOT NULL,
                     UNIQUE(ssh_user, remote_ip, service)
                 );
-                CREATE INDEX IF NOT EXISTS idx_ssh_trust_expires
-                    ON ssh_trusted_access(expires_at);
+                CREATE INDEX IF NOT EXISTS idx_unified_trust_expires
+                    ON unified_trusted_access(expires_at);
                 """
             )
 
@@ -60,8 +60,8 @@ class SshTrustStore:
     def _identity(ssh_user: str, remote_ip: str, service: str) -> tuple[str, str, str]:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}", ssh_user):
             raise ValueError("invalid SSH user")
-        if service != "sshd":
-            raise ValueError("trusted approval is for sshd only")
+        if service not in {"sshd", "xrdp-sesman"}:
+            raise ValueError("unsupported trusted approval service")
         return ssh_user, str(parse_ip(remote_ip)), service
 
     def grant(
@@ -77,10 +77,10 @@ class SshTrustStore:
         until = now + ttl_seconds
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute("DELETE FROM ssh_trusted_access WHERE expires_at <= ?", (now,))
+            conn.execute("DELETE FROM unified_trusted_access WHERE expires_at <= ?", (now,))
             conn.execute(
                 """
-                INSERT INTO ssh_trusted_access
+                INSERT INTO unified_trusted_access
                 (id, ssh_user, remote_ip, service, granted_at, expires_at, granted_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(ssh_user, remote_ip, service) DO UPDATE SET
@@ -105,7 +105,7 @@ class SshTrustStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT expires_at FROM ssh_trusted_access
+                SELECT expires_at FROM unified_trusted_access
                 WHERE ssh_user=? AND remote_ip=? AND service=? AND expires_at > ?
                 """,
                 (ssh_user, remote_ip, service, now),
@@ -119,7 +119,7 @@ class SshTrustStore:
                 """
                 SELECT id, ssh_user, remote_ip, service, granted_at,
                        expires_at, granted_by
-                FROM ssh_trusted_access WHERE expires_at > ?
+                FROM unified_trusted_access WHERE expires_at > ?
                 ORDER BY expires_at ASC LIMIT 50
                 """,
                 (now,),
@@ -144,12 +144,12 @@ class SshTrustStore:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT ssh_user, remote_ip FROM ssh_trusted_access WHERE id=?",
+                "SELECT ssh_user, remote_ip FROM unified_trusted_access WHERE id=?",
                 (identifier,),
             ).fetchone()
             if row is None:
                 conn.rollback()
                 return None
-            conn.execute("DELETE FROM ssh_trusted_access WHERE id=?", (identifier,))
+            conn.execute("DELETE FROM unified_trusted_access WHERE id=?", (identifier,))
             conn.commit()
         return {"ssh_user": str(row["ssh_user"]), "remote_ip": str(row["remote_ip"])}

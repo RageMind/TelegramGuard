@@ -361,7 +361,7 @@ class BotApp:
             config.ssh_approval_timeout,
             self._on_ssh_approval_request,
             self._on_ssh_approval_result,
-            is_trusted=lambda req: not self.config.strict_login_approval and req.service == "sshd" and self.ssh_trust.remaining(
+            is_trusted=lambda req: self.ssh_trust.remaining(
                 req.user, req.remote_ip, req.service,
             ) > 0,
         )
@@ -894,7 +894,7 @@ class BotApp:
             ("PAM", "UsePAM yes" if use_pam else "not ready"),
             ("pam_exec", "ready" if pam_exec else "missing"),
             ("Pending", pending),
-            ("Trusted SSH", len(self.ssh_trust.listing())),
+            ("Timed access", len(self.ssh_trust.listing())),
             (
                 "IP whitelist",
                 f"ON · {len(entries)} IP"
@@ -910,14 +910,11 @@ class BotApp:
             "5. Пароль/ключ обязателен; ошибка broker = отказ во входе."
         )
         if self.config.strict_login_approval:
-            rows = [
-                (key, value) for key, value in rows if key != "Trusted SSH"
-            ]
             rows.append(("RDP 2FA", "PAM ON" if approval.get("rdp_enabled") else "OFF"))
             details = (
                 "Общий IP whitelist для SSH и RDP. "
-                "Пароль/ключ и отдельное подтверждение каждого нового PAM-входа обязательны. "
-                "Временные исключения 2FA не действуют. "
+                 "Пароль/ключ обязательны; подтверждение один раз или на выбранный срок. "
+                "Доверие привязано к IP, пользователю и протоколу. "
                 "IP вне whitelist блокируется до аутентификации."
             )
             note = "Строгий режим. Изменение политики только локально."
@@ -979,8 +976,7 @@ class BotApp:
                     button("Диагностика", "ui:diagnostics"),
                 ]
             )
-        if not self.config.strict_login_approval:
-            keyboard_rows.append([button("Доверенные SSH IP", "ui:trustlist", style="primary")])
+        keyboard_rows.append([button("Временные разрешения SSH/RDP", "ui:trustlist", style="primary")])
         keyboard_rows.append(
             [
                 button("Обновить", "ui:access"),
@@ -1661,7 +1657,7 @@ class BotApp:
         if grants:
             lines = [
                 "🟢 <b>Временные исключения Telegram 2FA</b>",
-                "SSH-ключ или пароль по-прежнему обязательны.\n",
+                "Пароль/ключ и whitelist по-прежнему обязательны.\n",
             ]
             rows: list[list[dict[str, str]]] = []
             for entry in grants:
@@ -1690,14 +1686,14 @@ class BotApp:
             body = (
                 "Нет действующих исключений Telegram 2FA.\n\n"
                 "Во время следующего входа выберите в сообщении "
-                "«Разрешить 10 ч», «20 ч», на 1–7 дней или «Разрешить 1 раз»."
+                "«Свой срок», готовый срок или «Разрешить 1 раз»."
             )
             markup = keyboard(
                 [button("Обновить", "ui:trustlist")],
                 [button("Назад", "ui:access", style="primary")],
             )
         await self._show(
-            chat_id, _screen("Доверенные SSH-подключения", body), markup, message_id,
+            chat_id, _screen("Временные разрешения SSH/RDP", body), markup, message_id,
         )
 
     async def _show_ttl_choice(
@@ -1915,20 +1911,29 @@ class BotApp:
     async def _handle_callback(
         self,
         chat_id: int,
-        message_id: int,
+        message_id: int | None,
         admin_id: int,
         data: str,
     ) -> None:
         self.input_modes.pop(admin_id, None)
 
-        if data.startswith("ssht:"):
-            if self.config.strict_login_approval:
-                raise ValidationError("Каждый вход требует отдельного подтверждения")
+        if data.startswith("sshtc:"):
+            token = data.split(":", 1)[1]
+            current = self.ssh_approval.pending.get(token)
+            if current is None or current.future.done():
+                raise ValidationError("Запрос уже завершён или истёк")
+            parse_ip(current.request.remote_ip)
+            self.input_modes[admin_id] = f"trust_ttl:{token}"
+            await self._show(chat_id, _screen("Свой срок доступа",
+                "Отправьте срок: <code>15m</code>, <code>3h</code> или <code>5d</code>. "
+                "От 1 минуты до 7 дней. Введите до истечения запроса."),
+                keyboard([button("Отмена", "ui:access")]), message_id)
+        elif data.startswith("ssht:"):
             pieces = data.split(":")
             if len(pieces) != 3 or not pieces[2].isdigit():
                 raise ValidationError("неверный срок доверия")
             token, ttl_seconds = pieces[1], int(pieces[2])
-            if ttl_seconds not in SSH_TRUST_CHOICES:
+            if not 60 <= ttl_seconds <= 7 * 86400:
                 raise ValidationError("недопустимый срок доверия")
             current = self.ssh_approval.pending.get(token)
             if current is None or current.future.done():
@@ -1957,14 +1962,14 @@ class BotApp:
                 _screen(
                     "Доверие выдано",
                     (
-                        "🟢 <b>SSH вход разрешён</b>\n"
+                        f"🟢 <b>{'RDP' if trusted_request.service == 'xrdp-sesman' else 'SSH'} вход разрешён</b>\n"
                         f"Пользователь: <code>{_safe(trusted_request.user)}</code>\n"
                         f"IP: <code>{_safe(trusted_request.remote_ip)}</code>\n"
-                        f"Срок: <b>{_safe(SSH_TRUST_CHOICES[ttl_seconds])}</b>\n"
+                        f"Срок: <b>{_safe(format_ttl(ttl_seconds))}</b>\n"
                         f"Истекает: <b>{_safe(until)}</b>\n\n"
-                        "Следующие входы с этого IP для того же SSH-пользователя "
+                        "Следующие входы с этого IP для того же пользователя и протокола "
                         "не требуют Telegram-подтверждения до окончания срока. "
-                        "Обычная SSH-аутентификация продолжает действовать."
+                        "Пароль/ключ и сетевой whitelist обязательны."
                     ),
                 ),
                 {"inline_keyboard": [
@@ -2283,6 +2288,11 @@ class BotApp:
             return False
 
         try:
+            if mode.startswith("trust_ttl:"):
+                ttl = parse_ttl(text.strip())
+                token = mode.split(":", 1)[1]
+                await self._handle_callback(chat_id, None, admin_id, f"ssht:{token}:{ttl}")
+                return True
             if mode == "allow_ip":
                 parts = text.split()
                 if len(parts) != 1:
@@ -2606,8 +2616,13 @@ class BotApp:
              button("Разрешить 2 дня", f"ssht:{token}:172800")],
             [button("Разрешить 3 дня", f"ssht:{token}:259200"),
              button("Разрешить 7 дней", f"ssht:{token}:604800")],
+            [button("15 минут", f"ssht:{token}:900"), button("1 час", f"ssht:{token}:3600")],
+            [button("Свой срок", f"sshtc:{token}", style="primary")],
         )
-        if self.config.strict_login_approval or request.service == "xrdp-sesman":
+        try:
+            parse_ip(request.remote_ip)
+        except ValidationError:
+            # Without a verified client address, never persist an approval.
             keyboard_markup = keyboard([
                 button("Разрешить 1 раз", f"ssha:{token}", style="success"),
                 button("Отклонить", f"sshd:{token}", style="danger"),

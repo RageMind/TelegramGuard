@@ -92,3 +92,25 @@ def test_ssh_trust_is_not_a_credential_bypass(tmp_path):
     })
     # This only changes the broker decision after sshd already called PAM.
     assert item.remaining(req.user, req.remote_ip, req.service) > 0
+
+
+def test_rdp_trust_requires_real_ip_and_is_separate(tmp_path):
+    item = store(tmp_path)
+    item.grant("desktop", "203.0.113.42", "xrdp-sesman", 900, 42)
+    assert item.remaining("desktop", "203.0.113.42", "xrdp-sesman") > 0
+    assert item.remaining("desktop", "203.0.113.42", "sshd") == 0
+    assert item.remaining("desktop", "unknown (XRDP)", "xrdp-sesman") == 0
+    with pytest.raises(ValueError):
+        item.grant("desktop", "unknown (XRDP)", "xrdp-sesman", 900, 42)
+
+def test_custom_duration_and_no_legacy_grant_reactivation(tmp_path):
+    import sqlite3
+    from telegram_guard.security import parse_ttl
+    item = store(tmp_path)
+    with sqlite3.connect(item.path) as conn:
+        conn.execute("CREATE TABLE ssh_trusted_access AS SELECT * FROM unified_trusted_access")
+        conn.execute("INSERT INTO ssh_trusted_access VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     ("oldgrant", "root", "203.0.113.42", "sshd", 1, 9999999999, 42))
+    assert item.remaining("root", "203.0.113.42", "sshd") == 0
+    item.grant("root", "203.0.113.42", "sshd", parse_ttl("37m"), 42)
+    assert 2215 <= item.remaining("root", "203.0.113.42", "sshd") <= 2220
