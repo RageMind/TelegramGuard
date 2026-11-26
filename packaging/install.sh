@@ -68,11 +68,20 @@ if [[ -d "${INSTALL_ROOT}/venv" ]] && { [[ ! -x "${INSTALL_ROOT}/venv/bin/python
   ! "${INSTALL_ROOT}/venv/bin/python" -m pip --version >/dev/null 2>&1; }; then
   mv "${INSTALL_ROOT}/venv" "${INSTALL_ROOT}/venv.incomplete.$(date +%Y%m%d-%H%M%S)"
 fi
-if [[ ! -d "${INSTALL_ROOT}/venv" ]]; then
-  python3 -m venv "${INSTALL_ROOT}/venv"
-fi
-"${INSTALL_ROOT}/venv/bin/python" -m pip install --upgrade pip
-"${INSTALL_ROOT}/venv/bin/python" -m pip install --upgrade "${ROOT_DIR}"
+# The root installer may inherit umask 077 from a caller (e.g. RDP setup).
+# The venv contains executable code and dependencies, not runtime secrets.
+# Ensure the unprivileged service can read/traverse it, without granting writes.
+(
+  umask 022
+  if [[ ! -d "${INSTALL_ROOT}/venv" ]]; then
+    python3 -m venv "${INSTALL_ROOT}/venv"
+  fi
+  "${INSTALL_ROOT}/venv/bin/python" -m pip install --upgrade pip
+  "${INSTALL_ROOT}/venv/bin/python" -m pip install --upgrade "${ROOT_DIR}"
+)
+chmod -R a+rX "${INSTALL_ROOT}/venv"
+runuser -u "${SERVICE_USER}" -- "${INSTALL_ROOT}/venv/bin/python" \
+  -c 'import telegram_guard.bot'
 
 install -m 0644 "${ROOT_DIR}/packaging/systemd/telegram-guard.service" /etc/systemd/system/telegram-guard.service
 install -m 0644 "${ROOT_DIR}/packaging/systemd/telegram-guard-helper.service" /etc/systemd/system/telegram-guard-helper.service
